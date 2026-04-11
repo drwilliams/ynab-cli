@@ -7,7 +7,6 @@ version.workspace = true
 [dependencies]
 base64.workspace = true
 chrono.workspace = true
-directories.workspace = true
 keyring.workspace = true
 rand.workspace = true
 reqwest.workspace = true
@@ -21,4 +20,3 @@ webbrowser.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-

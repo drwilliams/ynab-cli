@@ -189,7 +189,7 @@ fn default_profile_name() -> String {
 }
 
 fn default_base_url() -> String {
-    "https://api.ynab.com/v1".to_string()
+    "https://api.ynab.com/v1/".to_string()
 }
 
 fn default_runtime_home() -> Result<PathBuf> {

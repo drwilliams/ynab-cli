@@ -2,7 +2,11 @@ use std::{collections::BTreeMap, fs};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{config::AppPaths, error::Result, models::StoredSession};
+use crate::{
+    config::AppPaths,
+    error::{Result, YnabError},
+    models::StoredSession,
+};
 
 const SERVICE_NAME: &str = "com.openai.ynab-agent-cli";
 
@@ -48,7 +52,7 @@ impl SecretStore {
 
     pub fn save_session(&self, profile: &str, session: &StoredSession) -> Result<()> {
         match self.backend {
-            SecretBackend::Keyring => self.write_keyring(profile, "session", session),
+            SecretBackend::Keyring => self.write_keyring_verified(profile, "session", session),
             SecretBackend::File => self.write_file_secrets(profile, |entry| {
                 entry.session = Some(session.clone());
             }),
@@ -75,7 +79,9 @@ impl SecretStore {
 
     pub fn save_oauth_client_secret(&self, profile: &str, secret: &str) -> Result<()> {
         match self.backend {
-            SecretBackend::Keyring => self.write_keyring(profile, "oauth_client_secret", secret),
+            SecretBackend::Keyring => {
+                self.write_keyring_verified(profile, "oauth_client_secret", &secret.to_string())
+            }
             SecretBackend::File => self.write_file_secrets(profile, |entry| {
                 entry.oauth_client_secret = Some(secret.to_string());
             }),
@@ -94,12 +100,19 @@ impl SecretStore {
         }
     }
 
-    fn write_keyring<T>(&self, profile: &str, suffix: &str, value: &T) -> Result<()>
+    fn write_keyring_verified<T>(&self, profile: &str, suffix: &str, value: &T) -> Result<()>
     where
         T: Serialize + ?Sized,
     {
         let entry = keyring::Entry::new(SERVICE_NAME, &format!("{profile}:{suffix}"))?;
-        entry.set_password(&serde_json::to_string(value)?)?;
+        let expected = serde_json::to_string(value)?;
+        entry.set_password(&expected)?;
+        let actual = entry.get_password()?;
+        if actual != expected {
+            return Err(YnabError::Config(format!(
+                "keyring write verification failed for {profile}:{suffix}"
+            )));
+        }
         Ok(())
     }
 

@@ -114,7 +114,7 @@ impl AppState {
             .profile(&profile_name)
             .cloned()
             .ok_or_else(|| YnabError::Config(format!("profile not found: {profile_name}")))?;
-        let base_url = Url::parse(
+        let base_url = normalize_base_url(
             options
                 .base_url_override
                 .as_deref()
@@ -821,11 +821,19 @@ fn required_string(payload: &Value, field: &str) -> Result<String> {
         .ok_or_else(|| YnabError::Config(format!("missing `{field}` in token response")))
 }
 
+fn normalize_base_url(input: &str) -> Result<Url> {
+    let mut normalized = input.trim().to_string();
+    if !normalized.ends_with('/') {
+        normalized.push('/');
+    }
+    Ok(Url::parse(&normalized)?)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
 
-    use super::{AppState, OAuthAppInput, RuntimeOptions};
+    use super::{AppState, OAuthAppInput, RuntimeOptions, normalize_base_url};
     use crate::{OAuthScope, OutputFormat};
 
     #[test]
@@ -858,5 +866,12 @@ mod tests {
         unsafe {
             std::env::remove_var("YNAB_AGENT_CLI_HOME");
         }
+    }
+
+    #[test]
+    fn normalize_base_url_preserves_v1_path() {
+        let url = normalize_base_url("https://api.ynab.com/v1").unwrap();
+        assert_eq!(url.as_str(), "https://api.ynab.com/v1/");
+        assert_eq!(url.join("plans").unwrap().as_str(), "https://api.ynab.com/v1/plans");
     }
 }
