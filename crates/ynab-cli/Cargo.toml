@@ -1,0 +1,22 @@
+[package]
+name = "ynab-cli"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "ynab"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+url.workspace = true
+webbrowser.workspace = true
+ynab-core = { path = "../ynab-core" }
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

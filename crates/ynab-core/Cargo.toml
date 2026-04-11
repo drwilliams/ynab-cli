@@ -1,0 +1,24 @@
+[package]
+name = "ynab-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+directories.workspace = true
+keyring.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+webbrowser.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
