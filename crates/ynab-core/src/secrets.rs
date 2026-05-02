@@ -43,6 +43,10 @@ impl SecretStore {
         Self { backend, paths }
     }
 
+    pub fn uses_keyring(&self) -> bool {
+        matches!(self.backend, SecretBackend::Keyring)
+    }
+
     pub fn load_session(&self, profile: &str) -> Result<Option<StoredSession>> {
         match self.backend {
             SecretBackend::Keyring => self.read_keyring(profile, "session"),

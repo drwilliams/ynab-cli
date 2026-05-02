@@ -1,17 +1,19 @@
 use std::{
+    fs,
     io::{self, IsTerminal, Read, Write},
     net::TcpListener,
     process::ExitCode,
     time::{Duration, Instant},
 };
 
+use chrono::NaiveDate;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
-use serde_json::Value;
+use serde_json::{Value, json};
 use url::Url;
 use ynab_core::{
     AmountMilliunits, AppState, OAuthAppInput, OAuthScope, OutputEnvelope, OutputFormat,
-    ResolveByNameKind, ResourceListOptions, RuntimeOptions, TransactionCreateInput,
-    TransactionUpdateInput, YnabError,
+    ResolveByNameKind, ResourceListOptions, RuntimeOptions, SaveCategory, TransactionClearedFilter,
+    TransactionCreateInput, TransactionListOptions, TransactionUpdateInput, YnabError,
 };
 
 #[derive(Debug, Parser)]
@@ -24,8 +26,18 @@ struct Cli {
     base_url: Option<String>,
     #[arg(long, global = true, default_value = "json")]
     output: OutputMode,
+    #[arg(long, global = true)]
+    transform: Option<String>,
+    #[arg(long = "query", global = true, alias = "jq")]
+    query: Option<String>,
+    #[arg(long, global = true, action = ArgAction::SetTrue)]
+    raw_output: bool,
     #[arg(long, global = true, action = ArgAction::SetTrue)]
     no_keyring: bool,
+    #[arg(long, global = true, env = "YNAB_ACCESS_TOKEN", hide_env_values = true)]
+    access_token: Option<String>,
+    #[arg(long, short = 'y', global = true, action = ArgAction::SetTrue)]
+    yes: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -34,6 +46,7 @@ struct Cli {
 enum OutputMode {
     Json,
     PrettyJson,
+    Jsonl,
 }
 
 impl From<OutputMode> for OutputFormat {
@@ -41,8 +54,21 @@ impl From<OutputMode> for OutputFormat {
         match value {
             OutputMode::Json => OutputFormat::Json,
             OutputMode::PrettyJson => OutputFormat::PrettyJson,
+            OutputMode::Jsonl => OutputFormat::Jsonl,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct RenderOptions {
+    format: OutputFormat,
+    transform: Option<String>,
+    raw_output: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RunOptions {
+    yes: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -53,13 +79,27 @@ enum Commands {
     #[command(subcommand)]
     Plans(PlansCommands),
     #[command(subcommand)]
-    Accounts(ResourceCommands),
+    Accounts(AccountsCommands),
     #[command(subcommand)]
-    Categories(ResourceCommands),
+    Categories(CategoriesCommands),
     #[command(subcommand)]
-    Payees(ResourceCommands),
+    CategoryGroups(CategoryGroupsCommands),
+    #[command(subcommand)]
+    Payees(PayeesCommands),
     #[command(subcommand)]
     Transactions(Box<TransactionsCommands>),
+    #[command(subcommand)]
+    Months(MonthsCommands),
+    #[command(subcommand)]
+    ScheduledTransactions(Box<ScheduledTransactionsCommands>),
+    #[command(subcommand)]
+    MoneyMovements(MoneyMovementsCommands),
+    #[command(subcommand)]
+    MoneyMovementGroups(MoneyMovementGroupsCommands),
+    #[command(subcommand)]
+    PayeeLocations(PayeeLocationsCommands),
+    #[command(subcommand)]
+    User(UserCommands),
 }
 
 #[derive(Debug, Subcommand)]
@@ -70,6 +110,7 @@ enum AuthCommands {
     #[command(subcommand)]
     Oauth(OAuthCommands),
     Whoami,
+    Status,
     Logout,
 }
 
@@ -144,15 +185,18 @@ struct OAuthExchangeArgs {
 
 #[derive(Debug, Subcommand)]
 enum PlansCommands {
-    List(ListArgs),
+    List(PlansListArgs),
     Get(PlanGetArgs),
+    Settings(PlanGetArgs),
     SetDefault(PlanDefaultArgs),
 }
 
 #[derive(Debug, Args)]
-struct ListArgs {
+struct PlansListArgs {
     #[arg(long)]
     last_knowledge_of_server: Option<u64>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    include_accounts: bool,
 }
 
 #[derive(Debug, Args)]
@@ -166,8 +210,71 @@ struct PlanDefaultArgs {
 }
 
 #[derive(Debug, Subcommand)]
-enum ResourceCommands {
+enum AccountsCommands {
     List(ResourceListArgs),
+    Get(AccountGetArgs),
+    Create(AccountCreateArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum CategoriesCommands {
+    List(ResourceListArgs),
+    Get(CategoryGetArgs),
+    Create(CategoryCreateArgs),
+    Update(CategoryUpdateArgs),
+    UpdateMonth(CategoryUpdateMonthArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum CategoryGroupsCommands {
+    Create(CategoryGroupCreateArgs),
+    Update(CategoryGroupUpdateArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum PayeesCommands {
+    List(ResourceListArgs),
+    Create(PayeeCreateArgs),
+    Update(PayeeUpdateArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum MonthsCommands {
+    List(PlanOnlyArgs),
+    Get(MonthGetArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum ScheduledTransactionsCommands {
+    List(ResourceListArgs),
+    Get(ScheduledTransactionGetArgs),
+    Create(ScheduledTransactionCreateArgs),
+    Update(ScheduledTransactionUpdateArgs),
+    Delete(ScheduledTransactionDeleteArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum MoneyMovementsCommands {
+    List(PlanOnlyArgs),
+    ListMonth(MonthPlanArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum MoneyMovementGroupsCommands {
+    List(PlanOnlyArgs),
+    ListMonth(MonthPlanArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum PayeeLocationsCommands {
+    List(PlanOnlyArgs),
+    Get(PayeeLocationGetArgs),
+    ListPayee(PayeeLocationsByPayeeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum UserCommands {
+    Get,
 }
 
 #[derive(Debug, Args)]
@@ -178,11 +285,295 @@ struct ResourceListArgs {
     last_knowledge_of_server: Option<u64>,
 }
 
+#[derive(Debug, Args)]
+struct PlanOnlyArgs {
+    #[arg(long)]
+    plan: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct MonthPlanArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    month: String,
+}
+
+#[derive(Debug, Args)]
+struct AccountGetArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    account_id: String,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AccountTypeArg {
+    Checking,
+    Savings,
+    Cash,
+    #[value(name = "credit-card")]
+    CreditCard,
+    #[value(name = "other-asset")]
+    OtherAsset,
+    #[value(name = "other-liability")]
+    OtherLiability,
+}
+
+impl AccountTypeArg {
+    fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Checking => "checking",
+            Self::Savings => "savings",
+            Self::Cash => "cash",
+            Self::CreditCard => "creditCard",
+            Self::OtherAsset => "otherAsset",
+            Self::OtherLiability => "otherLiability",
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct AccountCreateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    name: String,
+    #[arg(long, value_enum)]
+    account_type: AccountTypeArg,
+    #[arg(long)]
+    balance: String,
+    #[arg(long)]
+    cleared_balance: Option<String>,
+    #[arg(long)]
+    uncleared_balance: Option<String>,
+    #[arg(long)]
+    transfer_payee_id: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
+    on_budget: Option<bool>,
+    #[arg(long)]
+    closed: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+struct CategoryCreateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    name: String,
+    #[arg(long)]
+    group_id: String,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
+    goal_target: Option<String>,
+    #[arg(long)]
+    goal_target_date: Option<String>,
+    #[arg(long)]
+    goal_needs_whole_amount: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+struct CategoryGetArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    category_id: String,
+}
+
+#[derive(Debug, Args)]
+struct CategoryUpdateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    category_id: String,
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long)]
+    group_id: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
+    goal_target: Option<String>,
+    #[arg(long)]
+    goal_target_date: Option<String>,
+    #[arg(long)]
+    goal_needs_whole_amount: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+struct CategoryUpdateMonthArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    month: String,
+    category_id: String,
+    #[arg(long)]
+    budgeted: String,
+}
+
+#[derive(Debug, Args)]
+struct CategoryGroupCreateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct CategoryGroupUpdateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    category_group_id: String,
+    #[arg(long)]
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct PayeeCreateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct PayeeUpdateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    payee_id: String,
+    #[arg(long)]
+    name: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum TransactionsCommands {
-    List(ResourceListArgs),
+    List(TransactionListArgs),
+    Search(TransactionSearchArgs),
+    Get(TransactionGetArgs),
+    Delete(TransactionDeleteArgs),
+    ListAccount(TransactionAccountListArgs),
+    ListCategory(TransactionCategoryListArgs),
+    ListPayee(TransactionPayeeListArgs),
     Create(TransactionCreateArgs),
+    CreateBulk(TransactionJsonInputArgs),
+    Import(TransactionJsonInputArgs),
+    Export(TransactionExportArgs),
     Update(TransactionUpdateArgs),
+    UpdateBulk(TransactionJsonInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct TransactionFilterArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    last_knowledge_of_server: Option<u64>,
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    since_date: Option<String>,
+    #[arg(long, value_enum)]
+    transaction_type: Option<TransactionApiTypeArg>,
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    startdate: Option<String>,
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    enddate: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "uncleared_only")]
+    cleared_only: bool,
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "cleared_only")]
+    uncleared_only: bool,
+}
+
+#[derive(Debug, Args)]
+struct TransactionListArgs {
+    #[command(flatten)]
+    filters: TransactionFilterArgs,
+    #[arg(long, value_name = "YYYY-MM or YYYY-MM-01")]
+    month: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct TransactionSearchArgs {
+    #[command(flatten)]
+    filters: TransactionFilterArgs,
+    #[arg(long, value_name = "YYYY-MM or YYYY-MM-01")]
+    month: Option<String>,
+    #[arg(long)]
+    query: Option<String>,
+    #[arg(long)]
+    payee: Option<String>,
+    #[arg(long)]
+    memo: Option<String>,
+    #[arg(long)]
+    account: Option<String>,
+    #[arg(long)]
+    category: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TransactionApiTypeArg {
+    Uncategorized,
+    Unapproved,
+}
+
+impl TransactionApiTypeArg {
+    fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Uncategorized => "uncategorized",
+            Self::Unapproved => "unapproved",
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct TransactionGetArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    transaction_id: String,
+}
+
+#[derive(Debug, Args)]
+struct TransactionDeleteArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    transaction_id: String,
+}
+
+#[derive(Debug, Args)]
+struct TransactionAccountListArgs {
+    #[command(flatten)]
+    filters: TransactionFilterArgs,
+    account_id: String,
+}
+
+#[derive(Debug, Args)]
+struct TransactionCategoryListArgs {
+    #[command(flatten)]
+    filters: TransactionFilterArgs,
+    category_id: String,
+}
+
+#[derive(Debug, Args)]
+struct TransactionPayeeListArgs {
+    #[command(flatten)]
+    filters: TransactionFilterArgs,
+    payee_id: String,
+}
+
+#[derive(Debug, Args)]
+struct TransactionJsonInputArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long, value_name = "FILE|-", default_value = "-")]
+    input: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct TransactionExportArgs {
+    #[command(flatten)]
+    filters: TransactionFilterArgs,
+    #[arg(long, value_name = "YYYY-MM or YYYY-MM-01")]
+    month: Option<String>,
+    #[arg(long, value_name = "FILE")]
+    output: String,
 }
 
 #[derive(Debug, Args)]
@@ -213,6 +604,10 @@ struct TransactionCreateArgs {
     approved: Option<bool>,
     #[arg(long)]
     flag_color: Option<String>,
+    #[arg(long)]
+    import_id: Option<String>,
+    #[arg(long)]
+    id: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     dry_run: bool,
 }
@@ -250,78 +645,228 @@ struct TransactionUpdateArgs {
     dry_run: bool,
 }
 
+#[derive(Debug, Args)]
+struct MonthGetArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    month: String,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ScheduledFrequencyArg {
+    Never,
+    Daily,
+    Weekly,
+    #[value(name = "every-other-week")]
+    EveryOtherWeek,
+    #[value(name = "twice-a-month")]
+    TwiceAMonth,
+    #[value(name = "every-4-weeks")]
+    Every4Weeks,
+    Monthly,
+    #[value(name = "every-other-month")]
+    EveryOtherMonth,
+    #[value(name = "every-3-months")]
+    Every3Months,
+    #[value(name = "every-4-months")]
+    Every4Months,
+    #[value(name = "twice-a-year")]
+    TwiceAYear,
+    Yearly,
+    #[value(name = "every-other-year")]
+    EveryOtherYear,
+}
+
+impl ScheduledFrequencyArg {
+    fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Never => "never",
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+            Self::EveryOtherWeek => "everyOtherWeek",
+            Self::TwiceAMonth => "twiceAMonth",
+            Self::Every4Weeks => "every4Weeks",
+            Self::Monthly => "monthly",
+            Self::EveryOtherMonth => "everyOtherMonth",
+            Self::Every3Months => "every3Months",
+            Self::Every4Months => "every4Months",
+            Self::TwiceAYear => "twiceAYear",
+            Self::Yearly => "yearly",
+            Self::EveryOtherYear => "everyOtherYear",
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct ScheduledTransactionGetArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    scheduled_transaction_id: String,
+}
+
+#[derive(Debug, Args)]
+struct ScheduledTransactionDeleteArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    scheduled_transaction_id: String,
+}
+
+#[derive(Debug, Args)]
+struct ScheduledTransactionCreateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    account_id: Option<String>,
+    #[arg(long)]
+    account_name: Option<String>,
+    #[arg(long)]
+    date: String,
+    #[arg(long)]
+    amount: String,
+    #[arg(long)]
+    payee_id: Option<String>,
+    #[arg(long)]
+    payee_name: Option<String>,
+    #[arg(long)]
+    category_id: Option<String>,
+    #[arg(long)]
+    category_name: Option<String>,
+    #[arg(long)]
+    memo: Option<String>,
+    #[arg(long)]
+    flag_color: Option<String>,
+    #[arg(long, value_enum)]
+    frequency: ScheduledFrequencyArg,
+}
+
+#[derive(Debug, Args)]
+struct ScheduledTransactionUpdateArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    scheduled_transaction_id: String,
+    #[arg(long)]
+    account_id: Option<String>,
+    #[arg(long)]
+    account_name: Option<String>,
+    #[arg(long)]
+    date: Option<String>,
+    #[arg(long)]
+    amount: Option<String>,
+    #[arg(long)]
+    payee_id: Option<String>,
+    #[arg(long)]
+    payee_name: Option<String>,
+    #[arg(long)]
+    category_id: Option<String>,
+    #[arg(long)]
+    category_name: Option<String>,
+    #[arg(long)]
+    memo: Option<String>,
+    #[arg(long)]
+    flag_color: Option<String>,
+    #[arg(long, value_enum)]
+    frequency: Option<ScheduledFrequencyArg>,
+}
+
+#[derive(Debug, Args)]
+struct PayeeLocationGetArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    payee_location_id: String,
+}
+
+#[derive(Debug, Args)]
+struct PayeeLocationsByPayeeArgs {
+    #[arg(long)]
+    plan: Option<String>,
+    payee_id: String,
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    let access_token_source = access_token_source_from_args();
     let cli = Cli::parse();
-    let result = run(cli).await;
+    let result = run(cli, access_token_source).await;
     match result {
-        Ok((format, envelope)) => {
-            print_json(format, &serde_json::to_value(envelope).unwrap());
+        Ok((render_options, envelope)) => {
+            print_json(&render_options, &serde_json::to_value(envelope).unwrap());
             ExitCode::SUCCESS
         }
-        Err((format, error)) => {
+        Err((render_options, error)) => {
             let value = serde_json::to_value(error.to_cli_envelope()).unwrap();
-            eprintln!("{}", render_json(format, &value));
+            eprint!("{}", render_json(&render_options, &value));
             ExitCode::from(1)
         }
     }
 }
 
-async fn run(cli: Cli) -> Result<(OutputFormat, OutputEnvelope), (OutputFormat, YnabError)> {
+async fn run(
+    cli: Cli,
+    access_token_source: Option<&'static str>,
+) -> Result<(RenderOptions, OutputEnvelope), (RenderOptions, YnabError)> {
     let output_format: OutputFormat = cli.output.into();
+    let transform = cli.transform.or(cli.query);
+    let render_options = RenderOptions {
+        format: output_format,
+        transform,
+        raw_output: cli.raw_output,
+    };
+    let run_options = RunOptions { yes: cli.yes };
     let mut app = AppState::load(RuntimeOptions {
         profile: cli.profile,
         use_keyring: !cli.no_keyring,
         base_url_override: cli.base_url,
         output_format,
+        access_token_override: cli.access_token,
+        access_token_override_source: access_token_source,
     })
-    .map_err(|error| (output_format, error))?;
+    .map_err(|error| (render_options.clone(), error))?;
 
     let result = match cli.command {
         Commands::Auth(command) => run_auth(&mut app, command).await,
         Commands::Plans(command) => run_plans(&mut app, command).await,
-        Commands::Accounts(ResourceCommands::List(args)) => {
-            let plan_id = app
-                .resolve_plan_argument(args.plan)
-                .map_err(|error| (app.output_format(), error))?;
-            app.list_accounts(
-                &plan_id,
-                ResourceListOptions {
-                    last_knowledge_of_server: args.last_knowledge_of_server,
-                },
-            )
-            .await
+        Commands::Accounts(command) => run_accounts(&mut app, command, run_options).await,
+        Commands::Categories(command) => run_categories(&mut app, command, run_options).await,
+        Commands::CategoryGroups(command) => {
+            run_category_groups(&mut app, command, run_options).await
         }
-        Commands::Categories(ResourceCommands::List(args)) => {
-            let plan_id = app
-                .resolve_plan_argument(args.plan)
-                .map_err(|error| (app.output_format(), error))?;
-            app.list_categories(
-                &plan_id,
-                ResourceListOptions {
-                    last_knowledge_of_server: args.last_knowledge_of_server,
-                },
-            )
-            .await
+        Commands::Payees(command) => run_payees(&mut app, command, run_options).await,
+        Commands::Transactions(command) => run_transactions(&mut app, *command, run_options).await,
+        Commands::Months(command) => run_months(&mut app, command).await,
+        Commands::ScheduledTransactions(command) => {
+            run_scheduled_transactions(&mut app, *command, run_options).await
         }
-        Commands::Payees(ResourceCommands::List(args)) => {
-            let plan_id = app
-                .resolve_plan_argument(args.plan)
-                .map_err(|error| (app.output_format(), error))?;
-            app.list_payees(
-                &plan_id,
-                ResourceListOptions {
-                    last_knowledge_of_server: args.last_knowledge_of_server,
-                },
-            )
-            .await
+        Commands::MoneyMovements(command) => run_money_movements(&mut app, command).await,
+        Commands::MoneyMovementGroups(command) => {
+            run_money_movement_groups(&mut app, command).await
         }
-        Commands::Transactions(command) => run_transactions(&mut app, *command).await,
+        Commands::PayeeLocations(command) => run_payee_locations(&mut app, command).await,
+        Commands::User(command) => run_user(&mut app, command).await,
     };
 
     result
-        .map(|value| (app.output_format(), value))
-        .map_err(|error| (app.output_format(), error))
+        .map(|value| (render_options.clone(), value))
+        .map_err(|error| (render_options, error))
+}
+
+fn access_token_source_from_args() -> Option<&'static str> {
+    for arg in std::env::args_os() {
+        if arg == "--access-token" {
+            return Some("flag");
+        }
+        if arg
+            .to_str()
+            .map(|value| value.starts_with("--access-token="))
+            .unwrap_or(false)
+        {
+            return Some("flag");
+        }
+    }
+    if std::env::var("YNAB_ACCESS_TOKEN").is_ok() {
+        Some("env")
+    } else {
+        None
+    }
 }
 
 async fn run_auth(app: &mut AppState, command: AuthCommands) -> Result<OutputEnvelope, YnabError> {
@@ -332,7 +877,7 @@ async fn run_auth(app: &mut AppState, command: AuthCommands) -> Result<OutputEnv
                 Some(token) => token,
                 None => read_stdin_token()?,
             };
-            app.set_personal_access_token(token)
+            app.set_personal_access_token(token).await
         }
         AuthCommands::Oauth(command) => match command {
             OAuthCommands::Configure(args) => app.configure_oauth_app(OAuthAppInput {
@@ -348,6 +893,7 @@ async fn run_auth(app: &mut AppState, command: AuthCommands) -> Result<OutputEnv
             }
         },
         AuthCommands::Whoami => app.whoami().await,
+        AuthCommands::Status => app.auth_status(),
         AuthCommands::Logout => app.clear_session(),
     }
 }
@@ -358,30 +904,257 @@ async fn run_plans(
 ) -> Result<OutputEnvelope, YnabError> {
     match command {
         PlansCommands::List(args) => {
-            app.list_plans(ResourceListOptions {
-                last_knowledge_of_server: args.last_knowledge_of_server,
-            })
+            app.list_plans_with_include_accounts(
+                ResourceListOptions {
+                    last_knowledge_of_server: args.last_knowledge_of_server,
+                },
+                args.include_accounts,
+            )
             .await
         }
         PlansCommands::Get(args) => app.get_plan(&args.plan_id).await,
+        PlansCommands::Settings(args) => app.get_plan_settings(&args.plan_id).await,
         PlansCommands::SetDefault(args) => app.set_default_plan(&args.plan_id),
     }
 }
 
-async fn run_transactions(
+async fn run_accounts(
     app: &mut AppState,
-    command: TransactionsCommands,
+    command: AccountsCommands,
+    run_options: RunOptions,
 ) -> Result<OutputEnvelope, YnabError> {
     match command {
-        TransactionsCommands::List(args) => {
-            let plan_id = app.resolve_plan_argument(args.plan)?;
-            app.list_transactions(
+        AccountsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_accounts(
                 &plan_id,
                 ResourceListOptions {
                     last_knowledge_of_server: args.last_knowledge_of_server,
                 },
             )
             .await
+        }
+        AccountsCommands::Get(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.get_account(&plan_id, &args.account_id).await
+        }
+        AccountsCommands::Create(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan.clone()).await?;
+            confirm_write(
+                run_options,
+                "create account",
+                &[("plan", plan_id.as_str()), ("name", args.name.as_str())],
+            )?;
+            let account = build_account_payload(args)?;
+            app.create_account(&plan_id, account).await
+        }
+    }
+}
+
+async fn run_categories(
+    app: &mut AppState,
+    command: CategoriesCommands,
+    run_options: RunOptions,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        CategoriesCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_categories(
+                &plan_id,
+                ResourceListOptions {
+                    last_knowledge_of_server: args.last_knowledge_of_server,
+                },
+            )
+            .await
+        }
+        CategoriesCommands::Get(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.get_category(&plan_id, &args.category_id).await
+        }
+        CategoriesCommands::Create(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan.clone()).await?;
+            let category = build_create_category_payload(args)?;
+            confirm_write(
+                run_options,
+                "create category",
+                &[
+                    ("plan", plan_id.as_str()),
+                    ("name", category.name.as_deref().unwrap_or("")),
+                ],
+            )?;
+            app.create_category(&plan_id, category).await
+        }
+        CategoriesCommands::Update(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan.clone()).await?;
+            let category = build_update_category_payload(&args)?;
+            confirm_write(
+                run_options,
+                "update category",
+                &[
+                    ("plan", plan_id.as_str()),
+                    ("category", args.category_id.as_str()),
+                ],
+            )?;
+            app.update_category(&plan_id, &args.category_id, category)
+                .await
+        }
+        CategoriesCommands::UpdateMonth(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let month = normalize_month_arg(&args.month)?;
+            let budgeted = AmountMilliunits::parse(&args.budgeted)?.0;
+            confirm_write(
+                run_options,
+                "update category budget",
+                &[
+                    ("plan", plan_id.as_str()),
+                    ("month", month.as_str()),
+                    ("category", args.category_id.as_str()),
+                    ("budgeted", args.budgeted.as_str()),
+                ],
+            )?;
+            app.update_month_category(&plan_id, &month, &args.category_id, budgeted)
+                .await
+        }
+    }
+}
+
+async fn run_category_groups(
+    app: &mut AppState,
+    command: CategoryGroupsCommands,
+    run_options: RunOptions,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        CategoryGroupsCommands::Create(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            confirm_write(
+                run_options,
+                "create category group",
+                &[("plan", plan_id.as_str()), ("name", args.name.as_str())],
+            )?;
+            app.create_category_group(&plan_id, args.name).await
+        }
+        CategoryGroupsCommands::Update(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            confirm_write(
+                run_options,
+                "update category group",
+                &[
+                    ("plan", plan_id.as_str()),
+                    ("category_group", args.category_group_id.as_str()),
+                    ("name", args.name.as_str()),
+                ],
+            )?;
+            app.update_category_group(&plan_id, &args.category_group_id, args.name)
+                .await
+        }
+    }
+}
+
+async fn run_payees(
+    app: &mut AppState,
+    command: PayeesCommands,
+    run_options: RunOptions,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        PayeesCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_payees(
+                &plan_id,
+                ResourceListOptions {
+                    last_knowledge_of_server: args.last_knowledge_of_server,
+                },
+            )
+            .await
+        }
+        PayeesCommands::Create(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            confirm_write(
+                run_options,
+                "create payee",
+                &[("plan", plan_id.as_str()), ("name", args.name.as_str())],
+            )?;
+            app.create_payee(&plan_id, args.name).await
+        }
+        PayeesCommands::Update(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            confirm_write(
+                run_options,
+                "update payee",
+                &[
+                    ("plan", plan_id.as_str()),
+                    ("payee", args.payee_id.as_str()),
+                    ("name", args.name.as_str()),
+                ],
+            )?;
+            app.update_payee(&plan_id, &args.payee_id, args.name).await
+        }
+    }
+}
+
+async fn run_transactions(
+    app: &mut AppState,
+    command: TransactionsCommands,
+    run_options: RunOptions,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        TransactionsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
+            let options = build_transaction_list_options(args.filters, args.month)?;
+            app.list_transactions(&plan_id, options).await
+        }
+        TransactionsCommands::Search(args) => {
+            validate_transaction_search_args(&args)?;
+            let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
+            let options = build_transaction_list_options(args.filters.clone(), args.month.clone())?;
+            let mut envelope = app.list_transactions(&plan_id, options).await?;
+            let filtered = envelope
+                .data
+                .get("transactions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|transaction| transaction_matches_search(transaction, &args))
+                .cloned()
+                .collect::<Vec<_>>();
+            envelope.data = json!({
+                "transactions": filtered,
+                "server_knowledge": envelope.data.get("server_knowledge").cloned().unwrap_or(Value::Null),
+            });
+            Ok(envelope)
+        }
+        TransactionsCommands::Get(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.get_transaction(&plan_id, &args.transaction_id).await
+        }
+        TransactionsCommands::Delete(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            confirm_write(
+                run_options,
+                "delete transaction",
+                &[
+                    ("plan", plan_id.as_str()),
+                    ("transaction", args.transaction_id.as_str()),
+                ],
+            )?;
+            app.delete_transaction(&plan_id, &args.transaction_id).await
+        }
+        TransactionsCommands::ListAccount(args) => {
+            let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
+            let options = build_transaction_list_options(args.filters, None)?;
+            app.list_transactions_by_account(&plan_id, &args.account_id, options)
+                .await
+        }
+        TransactionsCommands::ListCategory(args) => {
+            let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
+            let options = build_transaction_list_options(args.filters, None)?;
+            app.list_transactions_by_category(&plan_id, &args.category_id, options)
+                .await
+        }
+        TransactionsCommands::ListPayee(args) => {
+            let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
+            let options = build_transaction_list_options(args.filters, None)?;
+            app.list_transactions_by_payee(&plan_id, &args.payee_id, options)
+                .await
         }
         TransactionsCommands::Create(args) => {
             let plan_id = resolve_plan_id(app, args.plan).await?;
@@ -409,12 +1182,26 @@ async fn run_transactions(
                 None,
             )
             .await?;
+            if !args.dry_run {
+                confirm_write(
+                    run_options,
+                    "create transaction",
+                    &[
+                        ("plan", plan_id.as_str()),
+                        ("account", account_id.as_str()),
+                        ("date", args.date.as_str()),
+                        ("amount", args.amount.as_str()),
+                    ],
+                )?;
+            }
 
             app.create_transaction(TransactionCreateInput {
                 plan_id,
                 account_id,
                 date: args.date,
                 amount: AmountMilliunits::parse(&args.amount)?,
+                id: args.id,
+                import_id: args.import_id,
                 payee_id,
                 payee_name: args.payee_name,
                 category_id,
@@ -426,8 +1213,63 @@ async fn run_transactions(
             })
             .await
         }
+        TransactionsCommands::CreateBulk(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let request = load_transactions_request(&args.input, true)?;
+            if !args.dry_run {
+                confirm_write(
+                    run_options,
+                    "create transactions bulk",
+                    &[("plan", plan_id.as_str()), ("input", args.input.as_str())],
+                )?;
+            }
+            app.create_transactions_bulk(&plan_id, request, args.dry_run)
+                .await
+        }
+        TransactionsCommands::Import(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let request = load_transactions_request(&args.input, true)?;
+            if !args.dry_run {
+                confirm_write(
+                    run_options,
+                    "import transactions",
+                    &[("plan", plan_id.as_str()), ("input", args.input.as_str())],
+                )?;
+            }
+            app.import_transactions(&plan_id, request, args.dry_run)
+                .await
+        }
+        TransactionsCommands::Export(args) => {
+            let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
+            let options = build_transaction_list_options(args.filters, args.month)?;
+            let envelope = app.list_transactions(&plan_id, options).await?;
+            let transactions = envelope
+                .data
+                .get("transactions")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    YnabError::Config(
+                        "transactions list response is missing `transactions` array".to_string(),
+                    )
+                })?;
+            let export_payload = build_import_export_payload(transactions)?;
+            write_json_output(&args.output, &export_payload)?;
+            let transactions_exported = export_payload
+                .get("transactions")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            Ok(OutputEnvelope {
+                ok: true,
+                data: json!({
+                    "path": args.output,
+                    "transactions_exported": transactions_exported,
+                    "compatible_with": "transactions import"
+                }),
+            })
+        }
         TransactionsCommands::Update(args) => {
             let plan_id = resolve_plan_id(app, args.plan).await?;
+            let transaction_id = args.transaction_id.clone();
             let account_id = resolve_optional_named_or_explicit(
                 app,
                 ResolveByNameKind::Account,
@@ -452,10 +1294,20 @@ async fn run_transactions(
                 None,
             )
             .await?;
+            if !args.dry_run {
+                confirm_write(
+                    run_options,
+                    "update transaction",
+                    &[
+                        ("plan", plan_id.as_str()),
+                        ("transaction", transaction_id.as_str()),
+                    ],
+                )?;
+            }
 
             app.update_transaction(TransactionUpdateInput {
                 plan_id,
-                transaction_id: args.transaction_id,
+                transaction_id,
                 account_id,
                 date: args.date,
                 amount: args
@@ -474,11 +1326,178 @@ async fn run_transactions(
             })
             .await
         }
+        TransactionsCommands::UpdateBulk(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let request = load_transactions_request(&args.input, false)?;
+            if !args.dry_run {
+                confirm_write(
+                    run_options,
+                    "update transactions bulk",
+                    &[("plan", plan_id.as_str()), ("input", args.input.as_str())],
+                )?;
+            }
+            app.update_transactions_bulk(&plan_id, request, args.dry_run)
+                .await
+        }
+    }
+}
+
+async fn run_months(
+    app: &mut AppState,
+    command: MonthsCommands,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        MonthsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_months(&plan_id).await
+        }
+        MonthsCommands::Get(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let month = normalize_month_arg(&args.month)?;
+            app.get_month(&plan_id, &month).await
+        }
+    }
+}
+
+async fn run_scheduled_transactions(
+    app: &mut AppState,
+    command: ScheduledTransactionsCommands,
+    run_options: RunOptions,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        ScheduledTransactionsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_scheduled_transactions(
+                &plan_id,
+                ResourceListOptions {
+                    last_knowledge_of_server: args.last_knowledge_of_server,
+                },
+            )
+            .await
+        }
+        ScheduledTransactionsCommands::Get(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.get_scheduled_transaction(&plan_id, &args.scheduled_transaction_id)
+                .await
+        }
+        ScheduledTransactionsCommands::Create(args) => {
+            let plan_id = resolve_plan_id(app, args.plan.clone()).await?;
+            let scheduled_transaction =
+                build_scheduled_transaction_create_payload(app, &plan_id, args).await?;
+            confirm_write(
+                run_options,
+                "create scheduled transaction",
+                &[("plan", plan_id.as_str())],
+            )?;
+            app.create_scheduled_transaction(&plan_id, scheduled_transaction)
+                .await
+        }
+        ScheduledTransactionsCommands::Update(args) => {
+            let plan_id = resolve_plan_id(app, args.plan.clone()).await?;
+            let scheduled_transaction =
+                build_scheduled_transaction_update_payload(app, &plan_id, &args).await?;
+            confirm_write(
+                run_options,
+                "update scheduled transaction",
+                &[
+                    ("plan", plan_id.as_str()),
+                    (
+                        "scheduled_transaction",
+                        args.scheduled_transaction_id.as_str(),
+                    ),
+                ],
+            )?;
+            app.update_scheduled_transaction(
+                &plan_id,
+                &args.scheduled_transaction_id,
+                scheduled_transaction,
+            )
+            .await
+        }
+        ScheduledTransactionsCommands::Delete(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            confirm_write(
+                run_options,
+                "delete scheduled transaction",
+                &[
+                    ("plan", plan_id.as_str()),
+                    (
+                        "scheduled_transaction",
+                        args.scheduled_transaction_id.as_str(),
+                    ),
+                ],
+            )?;
+            app.delete_scheduled_transaction(&plan_id, &args.scheduled_transaction_id)
+                .await
+        }
+    }
+}
+
+async fn run_money_movements(
+    app: &mut AppState,
+    command: MoneyMovementsCommands,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        MoneyMovementsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_money_movements(&plan_id).await
+        }
+        MoneyMovementsCommands::ListMonth(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let month = normalize_month_arg(&args.month)?;
+            app.list_money_movements_by_month(&plan_id, &month).await
+        }
+    }
+}
+
+async fn run_money_movement_groups(
+    app: &mut AppState,
+    command: MoneyMovementGroupsCommands,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        MoneyMovementGroupsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_money_movement_groups(&plan_id).await
+        }
+        MoneyMovementGroupsCommands::ListMonth(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            let month = normalize_month_arg(&args.month)?;
+            app.list_money_movement_groups_by_month(&plan_id, &month)
+                .await
+        }
+    }
+}
+
+async fn run_payee_locations(
+    app: &mut AppState,
+    command: PayeeLocationsCommands,
+) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        PayeeLocationsCommands::List(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_payee_locations(&plan_id).await
+        }
+        PayeeLocationsCommands::Get(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.get_payee_location(&plan_id, &args.payee_location_id)
+                .await
+        }
+        PayeeLocationsCommands::ListPayee(args) => {
+            let plan_id = app.resolve_plan_argument(args.plan).await?;
+            app.list_payee_locations_by_payee(&plan_id, &args.payee_id)
+                .await
+        }
+    }
+}
+
+async fn run_user(app: &mut AppState, command: UserCommands) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        UserCommands::Get => app.get_user().await,
     }
 }
 
 async fn resolve_plan_id(app: &mut AppState, plan: Option<String>) -> Result<String, YnabError> {
-    app.resolve_plan_argument(plan)
+    app.resolve_plan_argument(plan).await
 }
 
 async fn resolve_named_or_explicit(
@@ -521,6 +1540,556 @@ fn kind_label(kind: ResolveByNameKind) -> &'static str {
     }
 }
 
+fn transaction_cleared_filter(args: &TransactionFilterArgs) -> Option<TransactionClearedFilter> {
+    if args.cleared_only {
+        Some(TransactionClearedFilter::Cleared)
+    } else if args.uncleared_only {
+        Some(TransactionClearedFilter::Uncleared)
+    } else {
+        None
+    }
+}
+
+fn build_transaction_list_options(
+    args: TransactionFilterArgs,
+    month: Option<String>,
+) -> Result<TransactionListOptions, YnabError> {
+    let start_date = args.startdate.as_deref().map(parse_cli_date).transpose()?;
+    let end_date = args.enddate.as_deref().map(parse_cli_date).transpose()?;
+    if let (Some(start_date), Some(end_date)) = (start_date, end_date)
+        && start_date > end_date
+    {
+        return Err(YnabError::Config(
+            "--startdate must be on or before --enddate".to_string(),
+        ));
+    }
+
+    Ok(TransactionListOptions {
+        last_knowledge_of_server: args.last_knowledge_of_server,
+        month: month.as_deref().map(normalize_month_arg).transpose()?,
+        since_date: args
+            .since_date
+            .as_deref()
+            .map(normalize_iso_date)
+            .transpose()?,
+        transaction_type: args
+            .transaction_type
+            .map(TransactionApiTypeArg::as_api_value)
+            .map(str::to_string),
+        start_date,
+        end_date,
+        cleared_filter: transaction_cleared_filter(&args),
+    })
+}
+
+fn validate_transaction_search_args(args: &TransactionSearchArgs) -> Result<(), YnabError> {
+    if args.query.is_none()
+        && args.payee.is_none()
+        && args.memo.is_none()
+        && args.account.is_none()
+        && args.category.is_none()
+    {
+        return Err(YnabError::Config(
+            "transactions search requires at least one of --query, --payee, --memo, --account, or --category"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn transaction_matches_search(transaction: &Value, args: &TransactionSearchArgs) -> bool {
+    if let Some(query) = args.query.as_deref()
+        && !matches_any_transaction_field(
+            transaction,
+            query,
+            &["payee_name", "memo", "account_name", "category_name"],
+        )
+    {
+        return false;
+    }
+
+    if let Some(payee) = args.payee.as_deref()
+        && !transaction_field_contains(transaction, "payee_name", payee)
+    {
+        return false;
+    }
+
+    if let Some(memo) = args.memo.as_deref()
+        && !transaction_field_contains(transaction, "memo", memo)
+    {
+        return false;
+    }
+
+    if let Some(account) = args.account.as_deref()
+        && !transaction_field_contains(transaction, "account_name", account)
+    {
+        return false;
+    }
+
+    if let Some(category) = args.category.as_deref()
+        && !transaction_field_contains(transaction, "category_name", category)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn matches_any_transaction_field(transaction: &Value, needle: &str, fields: &[&str]) -> bool {
+    fields
+        .iter()
+        .any(|field| transaction_field_contains(transaction, field, needle))
+}
+
+fn transaction_field_contains(transaction: &Value, field: &str, needle: &str) -> bool {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return false;
+    }
+    transaction
+        .get(field)
+        .and_then(Value::as_str)
+        .map(|value| value.to_lowercase().contains(&needle.to_lowercase()))
+        .unwrap_or(false)
+}
+
+fn build_account_payload(args: AccountCreateArgs) -> Result<Value, YnabError> {
+    let mut account = serde_json::Map::new();
+    account.insert("name".to_string(), Value::String(args.name));
+    account.insert(
+        "type".to_string(),
+        Value::String(args.account_type.as_api_value().to_string()),
+    );
+    account.insert(
+        "balance".to_string(),
+        Value::from(AmountMilliunits::parse(&args.balance)?.0),
+    );
+    if let Some(value) = args.cleared_balance {
+        account.insert(
+            "cleared_balance".to_string(),
+            Value::from(AmountMilliunits::parse(&value)?.0),
+        );
+    }
+    if let Some(value) = args.uncleared_balance {
+        account.insert(
+            "uncleared_balance".to_string(),
+            Value::from(AmountMilliunits::parse(&value)?.0),
+        );
+    }
+    if let Some(value) = args.transfer_payee_id {
+        account.insert("transfer_payee_id".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.note {
+        account.insert("note".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.on_budget {
+        account.insert("on_budget".to_string(), Value::Bool(value));
+    }
+    if let Some(value) = args.closed {
+        account.insert("closed".to_string(), Value::Bool(value));
+    }
+    Ok(Value::Object(account))
+}
+
+async fn build_scheduled_transaction_create_payload(
+    app: &mut AppState,
+    plan_id: &str,
+    args: ScheduledTransactionCreateArgs,
+) -> Result<Value, YnabError> {
+    let account_id = resolve_named_or_explicit(
+        app,
+        ResolveByNameKind::Account,
+        Some(plan_id),
+        args.account_id,
+        args.account_name,
+    )
+    .await?;
+    let category_id = resolve_optional_named_or_explicit(
+        app,
+        ResolveByNameKind::Category,
+        Some(plan_id),
+        args.category_id,
+        args.category_name,
+    )
+    .await?;
+    let payee_id = resolve_optional_named_or_explicit(
+        app,
+        ResolveByNameKind::Payee,
+        Some(plan_id),
+        args.payee_id,
+        None,
+    )
+    .await?;
+
+    let mut scheduled_transaction = serde_json::Map::new();
+    scheduled_transaction.insert("account_id".to_string(), Value::String(account_id));
+    scheduled_transaction.insert(
+        "date".to_string(),
+        Value::String(normalize_iso_date(&args.date)?),
+    );
+    scheduled_transaction.insert(
+        "amount".to_string(),
+        Value::from(AmountMilliunits::parse(&args.amount)?.0),
+    );
+    scheduled_transaction.insert(
+        "frequency".to_string(),
+        Value::String(args.frequency.as_api_value().to_string()),
+    );
+    if let Some(value) = payee_id {
+        scheduled_transaction.insert("payee_id".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.payee_name {
+        scheduled_transaction.insert("payee_name".to_string(), Value::String(value));
+    }
+    if let Some(value) = category_id {
+        scheduled_transaction.insert("category_id".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.memo {
+        scheduled_transaction.insert("memo".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.flag_color {
+        scheduled_transaction.insert("flag_color".to_string(), Value::String(value));
+    }
+
+    Ok(Value::Object(scheduled_transaction))
+}
+
+async fn build_scheduled_transaction_update_payload(
+    app: &mut AppState,
+    plan_id: &str,
+    args: &ScheduledTransactionUpdateArgs,
+) -> Result<Value, YnabError> {
+    let account_id = resolve_optional_named_or_explicit(
+        app,
+        ResolveByNameKind::Account,
+        Some(plan_id),
+        args.account_id.clone(),
+        args.account_name.clone(),
+    )
+    .await?;
+    let category_id = resolve_optional_named_or_explicit(
+        app,
+        ResolveByNameKind::Category,
+        Some(plan_id),
+        args.category_id.clone(),
+        args.category_name.clone(),
+    )
+    .await?;
+    let payee_id = resolve_optional_named_or_explicit(
+        app,
+        ResolveByNameKind::Payee,
+        Some(plan_id),
+        args.payee_id.clone(),
+        None,
+    )
+    .await?;
+
+    let mut scheduled_transaction = serde_json::Map::new();
+    if let Some(value) = account_id {
+        scheduled_transaction.insert("account_id".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.date.as_deref() {
+        scheduled_transaction.insert(
+            "date".to_string(),
+            Value::String(normalize_iso_date(value)?),
+        );
+    }
+    if let Some(value) = args.amount.as_deref() {
+        scheduled_transaction.insert(
+            "amount".to_string(),
+            Value::from(AmountMilliunits::parse(value)?.0),
+        );
+    }
+    if let Some(value) = payee_id {
+        scheduled_transaction.insert("payee_id".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.payee_name.as_ref() {
+        scheduled_transaction.insert("payee_name".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = category_id {
+        scheduled_transaction.insert("category_id".to_string(), Value::String(value));
+    }
+    if let Some(value) = args.memo.as_ref() {
+        scheduled_transaction.insert("memo".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = args.flag_color.as_ref() {
+        scheduled_transaction.insert("flag_color".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = args.frequency {
+        scheduled_transaction.insert(
+            "frequency".to_string(),
+            Value::String(value.as_api_value().to_string()),
+        );
+    }
+
+    if scheduled_transaction.is_empty() {
+        return Err(YnabError::Config(
+            "scheduled-transactions update requires at least one field to change".to_string(),
+        ));
+    }
+
+    Ok(Value::Object(scheduled_transaction))
+}
+
+fn read_json_input(path: &str) -> Result<Value, YnabError> {
+    let normalized_path = path
+        .strip_prefix("@file://")
+        .or_else(|| path.strip_prefix('@'))
+        .unwrap_or(path);
+    let raw = if normalized_path == "-" {
+        let mut input = String::new();
+        io::stdin().read_to_string(&mut input)?;
+        input
+    } else {
+        fs::read_to_string(normalized_path)?
+    };
+    Ok(serde_json::from_str(&raw)?)
+}
+
+fn load_transactions_request(
+    path: &str,
+    allow_single_transaction: bool,
+) -> Result<Value, YnabError> {
+    let input = read_json_input(path)?;
+    if let Some(object) = input.as_object()
+        && (object.contains_key("transaction") || object.contains_key("transactions"))
+    {
+        return Ok(input);
+    }
+
+    if let Some(transactions) = input.as_array() {
+        return Ok(json!({ "transactions": transactions }));
+    }
+
+    if allow_single_transaction && input.is_object() {
+        return Ok(json!({ "transaction": input }));
+    }
+
+    Err(YnabError::Config(
+        "transaction input must be a JSON object wrapper or an array of transactions".to_string(),
+    ))
+}
+
+fn build_import_export_payload(transactions: &[Value]) -> Result<Value, YnabError> {
+    let mut export_transactions = Vec::with_capacity(transactions.len());
+    for (index, transaction) in transactions.iter().enumerate() {
+        if let Some(transaction) = export_transaction(transaction, index)? {
+            export_transactions.push(transaction);
+        }
+    }
+    Ok(json!({ "transactions": export_transactions }))
+}
+
+fn export_transaction(transaction: &Value, index: usize) -> Result<Option<Value>, YnabError> {
+    let object = transaction.as_object().ok_or_else(|| {
+        YnabError::Config(format!(
+            "unable to export transaction at index {index}: expected an object"
+        ))
+    })?;
+
+    if object.get("deleted").and_then(Value::as_bool) == Some(true) {
+        return Ok(None);
+    }
+
+    let account_id = object
+        .get("account_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            YnabError::Config(format!(
+                "unable to export transaction at index {index}: missing required string `account_id`"
+            ))
+        })?;
+    let date = object.get("date").and_then(Value::as_str).ok_or_else(|| {
+        YnabError::Config(format!(
+            "unable to export transaction at index {index}: missing required string `date`"
+        ))
+    })?;
+    let amount = object.get("amount").and_then(value_to_i64).ok_or_else(|| {
+        YnabError::Config(format!(
+            "unable to export transaction at index {index}: missing required integer `amount`"
+        ))
+    })?;
+
+    let mut exported = serde_json::Map::new();
+    exported.insert(
+        "account_id".to_string(),
+        Value::String(account_id.to_string()),
+    );
+    exported.insert("date".to_string(), Value::String(normalize_iso_date(date)?));
+    exported.insert("amount".to_string(), Value::from(amount));
+
+    copy_optional_string_field(&mut exported, object, "import_id");
+    copy_optional_string_field(&mut exported, object, "payee_id");
+    copy_optional_string_field(&mut exported, object, "payee_name");
+    copy_optional_string_field(&mut exported, object, "category_id");
+    copy_optional_string_field(&mut exported, object, "memo");
+    copy_optional_string_field(&mut exported, object, "cleared");
+    copy_optional_bool_field(&mut exported, object, "approved");
+    copy_optional_string_field(&mut exported, object, "flag_color");
+    copy_optional_string_field(&mut exported, object, "transfer_account_id");
+
+    if let Some(subtransactions) = object.get("subtransactions") {
+        let export_subtransactions = export_subtransactions(subtransactions, index)?;
+        if !export_subtransactions.is_empty() {
+            exported.insert(
+                "subtransactions".to_string(),
+                Value::Array(export_subtransactions),
+            );
+        }
+    }
+
+    Ok(Some(Value::Object(exported)))
+}
+
+fn export_subtransactions(value: &Value, parent_index: usize) -> Result<Vec<Value>, YnabError> {
+    let subtransactions = value.as_array().ok_or_else(|| {
+        YnabError::Config(format!(
+            "unable to export transaction at index {parent_index}: `subtransactions` must be an array"
+        ))
+    })?;
+
+    let mut exported = Vec::with_capacity(subtransactions.len());
+    for (sub_index, subtransaction) in subtransactions.iter().enumerate() {
+        let object = subtransaction.as_object().ok_or_else(|| {
+            YnabError::Config(format!(
+                "unable to export transaction at index {parent_index}: subtransaction at index {sub_index} must be an object"
+            ))
+        })?;
+        if object.get("deleted").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        let amount = object.get("amount").and_then(value_to_i64).ok_or_else(|| {
+            YnabError::Config(format!(
+                "unable to export transaction at index {parent_index}: subtransaction at index {sub_index} is missing required integer `amount`"
+            ))
+        })?;
+
+        let mut export_subtransaction = serde_json::Map::new();
+        export_subtransaction.insert("amount".to_string(), Value::from(amount));
+        copy_optional_string_field(&mut export_subtransaction, object, "payee_id");
+        copy_optional_string_field(&mut export_subtransaction, object, "payee_name");
+        copy_optional_string_field(&mut export_subtransaction, object, "category_id");
+        copy_optional_string_field(&mut export_subtransaction, object, "memo");
+        copy_optional_string_field(&mut export_subtransaction, object, "transfer_account_id");
+        exported.push(Value::Object(export_subtransaction));
+    }
+
+    Ok(exported)
+}
+
+fn copy_optional_string_field(
+    target: &mut serde_json::Map<String, Value>,
+    source: &serde_json::Map<String, Value>,
+    field: &str,
+) {
+    if let Some(value) = source.get(field).and_then(Value::as_str) {
+        target.insert(field.to_string(), Value::String(value.to_string()));
+    }
+}
+
+fn copy_optional_bool_field(
+    target: &mut serde_json::Map<String, Value>,
+    source: &serde_json::Map<String, Value>,
+    field: &str,
+) {
+    if let Some(value) = source.get(field).and_then(Value::as_bool) {
+        target.insert(field.to_string(), Value::Bool(value));
+    }
+}
+
+fn value_to_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+}
+
+fn write_json_output(path: &str, value: &Value) -> Result<(), YnabError> {
+    let raw = serde_json::to_string_pretty(value)?;
+    if path == "-" {
+        println!("{raw}");
+    } else {
+        fs::write(path, raw)?;
+    }
+    Ok(())
+}
+
+fn build_create_category_payload(args: CategoryCreateArgs) -> Result<SaveCategory, YnabError> {
+    Ok(SaveCategory {
+        name: Some(args.name),
+        note: args.note,
+        category_group_id: Some(args.group_id),
+        goal_target: args
+            .goal_target
+            .as_deref()
+            .map(AmountMilliunits::parse)
+            .transpose()?
+            .map(|amount| amount.0),
+        goal_target_date: args
+            .goal_target_date
+            .as_deref()
+            .map(normalize_iso_date)
+            .transpose()?,
+        goal_needs_whole_amount: args.goal_needs_whole_amount,
+    })
+}
+
+fn build_update_category_payload(args: &CategoryUpdateArgs) -> Result<SaveCategory, YnabError> {
+    let payload = SaveCategory {
+        name: args.name.clone(),
+        note: args.note.clone(),
+        category_group_id: args.group_id.clone(),
+        goal_target: args
+            .goal_target
+            .as_deref()
+            .map(AmountMilliunits::parse)
+            .transpose()?
+            .map(|amount| amount.0),
+        goal_target_date: args
+            .goal_target_date
+            .as_deref()
+            .map(normalize_iso_date)
+            .transpose()?,
+        goal_needs_whole_amount: args.goal_needs_whole_amount,
+    };
+
+    if payload.name.is_none()
+        && payload.note.is_none()
+        && payload.category_group_id.is_none()
+        && payload.goal_target.is_none()
+        && payload.goal_target_date.is_none()
+        && payload.goal_needs_whole_amount.is_none()
+    {
+        return Err(YnabError::Config(
+            "categories update requires at least one field to change".to_string(),
+        ));
+    }
+
+    Ok(payload)
+}
+
+fn normalize_month_arg(input: &str) -> Result<String, YnabError> {
+    let trimmed = input.trim();
+    if let Ok(month) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        return Ok(month.format("%Y-%m-%d").to_string());
+    }
+    let normalized = format!("{trimmed}-01");
+    let month: NaiveDate = NaiveDate::parse_from_str(&normalized, "%Y-%m-%d").map_err(|_| {
+        YnabError::Config(format!(
+            "invalid --month value `{trimmed}`. use YYYY-MM or YYYY-MM-01"
+        ))
+    })?;
+    Ok(month.format("%Y-%m-%d").to_string())
+}
+
+fn parse_cli_date(input: &str) -> Result<NaiveDate, YnabError> {
+    NaiveDate::parse_from_str(input.trim(), "%Y-%m-%d")
+        .map_err(|_| YnabError::Config(format!("invalid date `{}`. use YYYY-MM-DD", input.trim())))
+}
+
+fn normalize_iso_date(input: &str) -> Result<String, YnabError> {
+    Ok(parse_cli_date(input)?.format("%Y-%m-%d").to_string())
+}
+
 fn read_stdin_token() -> Result<String, YnabError> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
@@ -533,14 +2102,117 @@ fn read_stdin_token() -> Result<String, YnabError> {
     Ok(token)
 }
 
-fn print_json(format: OutputFormat, value: &Value) {
-    println!("{}", render_json(format, value));
+fn confirm_write(
+    options: RunOptions,
+    action: &str,
+    details: &[(&str, &str)],
+) -> Result<(), YnabError> {
+    if options.yes {
+        return Ok(());
+    }
+    if !io::stdin().is_terminal() {
+        return Err(YnabError::Config(format!(
+            "refusing to {action} without confirmation in non-interactive mode; pass --yes to confirm"
+        )));
+    }
+
+    eprintln!();
+    eprintln!("About to {action}:");
+    for (label, value) in details {
+        eprintln!("  {label}: {value}");
+    }
+    eprint!("Proceed? [y/N] ");
+    io::stderr().flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    match answer.trim().to_lowercase().as_str() {
+        "y" | "yes" => Ok(()),
+        _ => Err(YnabError::Config("operation cancelled".to_string())),
+    }
 }
 
-fn render_json(format: OutputFormat, value: &Value) -> String {
-    match format {
-        OutputFormat::Json => serde_json::to_string(value).unwrap(),
-        OutputFormat::PrettyJson => serde_json::to_string_pretty(value).unwrap(),
+fn print_json(options: &RenderOptions, value: &Value) {
+    print!("{}", render_json(options, value));
+}
+
+fn render_json(options: &RenderOptions, value: &Value) -> String {
+    let value = match options.transform.as_deref() {
+        Some(path) => transform_json(value, path),
+        None => value.clone(),
+    };
+
+    if options.raw_output
+        && let Some(raw) = raw_scalar_output(&value)
+    {
+        return format!("{raw}\n");
+    }
+
+    let rendered = match options.format {
+        OutputFormat::Json => serde_json::to_string(&value).unwrap(),
+        OutputFormat::PrettyJson => serde_json::to_string_pretty(&value).unwrap(),
+        OutputFormat::Jsonl => render_jsonl(&value),
+    };
+    format!("{rendered}\n")
+}
+
+fn transform_json(value: &Value, path: &str) -> Value {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return value.clone();
+    }
+
+    let parts = trimmed
+        .trim_start_matches('.')
+        .split('.')
+        .collect::<Vec<_>>();
+    let start = match parts.first().copied() {
+        Some("ok" | "data" | "error") => value,
+        _ => value.get("data").unwrap_or(value),
+    };
+
+    let mut current = start;
+    for part in parts {
+        if part.is_empty() {
+            continue;
+        }
+        current = match current {
+            Value::Object(map) => match map.get(part) {
+                Some(value) => value,
+                None => return Value::Null,
+            },
+            Value::Array(values) => match part
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| values.get(index))
+            {
+                Some(value) => value,
+                None => return Value::Null,
+            },
+            _ => return Value::Null,
+        };
+    }
+    current.clone()
+}
+
+fn raw_scalar_output(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Null => Some("null".to_string()),
+        Value::Array(_) | Value::Object(_) => None,
+    }
+}
+
+fn render_jsonl(value: &Value) -> String {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .map(|value| serde_json::to_string(value).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        value => serde_json::to_string(value).unwrap(),
     }
 }
 
@@ -784,7 +2456,12 @@ fn html_escape(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CallbackConfig, parse_callback_request};
+    use serde_json::json;
+
+    use super::{
+        CallbackConfig, TransactionFilterArgs, TransactionSearchArgs, build_import_export_payload,
+        parse_callback_request, transaction_matches_search, validate_transaction_search_args,
+    };
 
     #[test]
     fn parses_loopback_redirect_uri() {
@@ -810,5 +2487,123 @@ mod tests {
         .unwrap();
         assert_eq!(callback.code, "test-code");
         assert_eq!(callback.state.as_deref(), Some("test-state"));
+    }
+
+    #[test]
+    fn transaction_search_requires_a_search_term() {
+        let error = validate_transaction_search_args(&TransactionSearchArgs {
+            filters: TransactionFilterArgs {
+                plan: None,
+                last_knowledge_of_server: None,
+                since_date: None,
+                transaction_type: None,
+                startdate: None,
+                enddate: None,
+                cleared_only: false,
+                uncleared_only: false,
+            },
+            month: None,
+            query: None,
+            payee: None,
+            memo: None,
+            account: None,
+            category: None,
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("transactions search requires"));
+    }
+
+    #[test]
+    fn transaction_search_matches_case_insensitive_fields() {
+        let transaction = json!({
+            "payee_name": "Amazon Marketplace",
+            "memo": "Household restock",
+            "account_name": "Checking",
+            "category_name": "Shopping"
+        });
+
+        let args = TransactionSearchArgs {
+            filters: TransactionFilterArgs {
+                plan: None,
+                last_knowledge_of_server: None,
+                since_date: None,
+                transaction_type: None,
+                startdate: None,
+                enddate: None,
+                cleared_only: false,
+                uncleared_only: false,
+            },
+            month: None,
+            query: Some("restock".to_string()),
+            payee: Some("amazon".to_string()),
+            memo: None,
+            account: Some("check".to_string()),
+            category: Some("shop".to_string()),
+        };
+
+        assert!(transaction_matches_search(&transaction, &args));
+    }
+
+    #[test]
+    fn export_payload_is_compatible_with_transactions_import() {
+        let payload = build_import_export_payload(&[json!({
+            "id": "transaction-1",
+            "account_id": "account-1",
+            "date": "2026-04-18",
+            "amount": -1250,
+            "payee_id": "payee-1",
+            "memo": "coffee",
+            "approved": true,
+            "deleted": false,
+            "subtransactions": [
+                {
+                    "amount": -1000,
+                    "category_id": "cat-1",
+                    "memo": "beans"
+                },
+                {
+                    "amount": -250,
+                    "deleted": true
+                }
+            ]
+        })])
+        .unwrap();
+
+        assert_eq!(
+            payload,
+            json!({
+                "transactions": [
+                    {
+                        "account_id": "account-1",
+                        "date": "2026-04-18",
+                        "amount": -1250,
+                        "payee_id": "payee-1",
+                        "memo": "coffee",
+                        "approved": true,
+                        "subtransactions": [
+                            {
+                                "amount": -1000,
+                                "category_id": "cat-1",
+                                "memo": "beans"
+                            }
+                        ]
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn export_payload_skips_deleted_transactions() {
+        let payload = build_import_export_payload(&[json!({
+            "account_id": "account-1",
+            "date": "2026-04-18",
+            "amount": 1000,
+            "deleted": true
+        })])
+        .unwrap();
+
+        assert_eq!(payload, json!({ "transactions": [] }));
     }
 }

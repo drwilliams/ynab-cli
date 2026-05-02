@@ -63,6 +63,7 @@ pub enum OutputFormat {
     #[default]
     Json,
     PrettyJson,
+    Jsonl,
 }
 
 pub struct ConfigManager {
@@ -193,8 +194,7 @@ fn default_base_url() -> String {
 }
 
 fn default_runtime_home() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
+    let home = dirs::home_dir()
         .ok_or_else(|| YnabError::Config("unable to determine home directory".to_string()))?;
     Ok(home.join(".ynab-agent-cli"))
 }

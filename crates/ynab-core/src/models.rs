@@ -139,9 +139,9 @@ pub struct ApiErrorBody {
 #[derive(Debug, Deserialize)]
 pub struct PlansData {
     #[serde(default)]
-    pub plans: Vec<NamedResource>,
+    pub plans: Vec<PlanSummary>,
     #[serde(default)]
-    pub default_plan: Option<NamedResource>,
+    pub default_plan: Option<PlanSummary>,
     #[serde(default)]
     pub server_knowledge: Option<u64>,
 }
@@ -175,6 +175,12 @@ pub struct TransactionsData {
     pub server_knowledge: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum TransactionClearedFilter {
+    Cleared,
+    Uncleared,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CategoryGroupsData {
     #[serde(default)]
@@ -190,9 +196,26 @@ pub struct CategoryGroup {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct PlanSummary {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub last_modified_on: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct NamedResource {
     pub id: String,
     pub name: String,
+}
+
+impl From<PlanSummary> for NamedResource {
+    fn from(value: PlanSummary) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -201,10 +224,86 @@ pub struct SaveTransactionRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PostPayeeWrapper {
+    pub payee: PostPayee,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PostPayee {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatchPayeeWrapper {
+    pub payee: SavePayee,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SavePayee {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PostCategoryWrapper {
+    pub category: SaveCategory,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatchCategoryWrapper {
+    pub category: SaveCategory,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct SaveCategory {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_group_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_target: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_target_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_needs_whole_amount: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PostCategoryGroupWrapper {
+    pub category_group: SaveCategoryGroup,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatchCategoryGroupWrapper {
+    pub category_group: SaveCategoryGroup,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SaveCategoryGroup {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatchMonthCategoryWrapper {
+    pub category: SaveMonthCategory,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SaveMonthCategory {
+    pub budgeted: i64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SaveTransaction {
     pub account_id: String,
     pub date: String,
     pub amount: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub import_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payee_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

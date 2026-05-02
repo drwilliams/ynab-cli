@@ -7,6 +7,7 @@ version.workspace = true
 [dependencies]
 base64.workspace = true
 chrono.workspace = true
+dirs.workspace = true
 keyring.workspace = true
 rand.workspace = true
 reqwest.workspace = true
