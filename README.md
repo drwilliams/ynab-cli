@@ -50,17 +50,23 @@ To reinstall after pulling updates:
 cargo install --path crates/ynab-cli --force
 ```
 
+Contributors can also run commands from the checkout without installing:
+
+```bash
+cargo run -p ynab-cli -- plans list
+```
+
 Set a personal access token:
 
 ```bash
-cargo run -p ynab-cli -- auth token set --token "$YNAB_ACCESS_TOKEN"
+ynab auth token set --token "$YNAB_ACCESS_TOKEN"
 ```
 
 For CI, scripts, or agent runs, use a token for only one invocation without saving it:
 
 ```bash
-YNAB_ACCESS_TOKEN="your-token" cargo run -p ynab-cli -- plans list
-cargo run -p ynab-cli -- --access-token "$YNAB_ACCESS_TOKEN" plans list
+YNAB_ACCESS_TOKEN="your-token" ynab plans list
+ynab --access-token "$YNAB_ACCESS_TOKEN" plans list
 ```
 
 When authentication is established and no default plan is set yet, the CLI will automatically choose the most recently updated plan and persist it as the default for the active profile. If that did not happen previously, plan-aware commands still fall back to the same auto-selection behavior.
@@ -68,82 +74,82 @@ When authentication is established and no default plan is set yet, the CLI will 
 List plans:
 
 ```bash
-cargo run -p ynab-cli -- plans list
-cargo run -p ynab-cli -- plans list --include-accounts
-cargo run -p ynab-cli -- plans settings PLAN_ID
+ynab plans list
+ynab plans list --include-accounts
+ynab plans settings PLAN_ID
 ```
 
 Get or create accounts:
 
 ```bash
-cargo run -p ynab-cli -- accounts get ACCOUNT_ID
-cargo run -p ynab-cli -- --yes accounts create --name "Checking" --account-type checking --balance 1000.00
+ynab accounts get ACCOUNT_ID
+ynab --yes accounts create --name "Checking" --account-type checking --balance 1000.00
 ```
 
 List transactions for a specific month or apply local filters:
 
 ```bash
-cargo run -p ynab-cli -- transactions list --month 2026-04
-cargo run -p ynab-cli -- transactions list --startdate 2026-04-11 --enddate 2026-04-18 --uncleared-only
-cargo run -p ynab-cli -- transactions get TRANSACTION_ID
-cargo run -p ynab-cli -- --yes transactions delete TRANSACTION_ID
-cargo run -p ynab-cli -- transactions list-account ACCOUNT_ID --since-date 2026-04-01 --transaction-type unapproved
-cargo run -p ynab-cli -- transactions search --query amazon --month 2026-04
-cargo run -p ynab-cli -- transactions search --payee "Costco" --memo fuel --startdate 2026-04-01
-cargo run -p ynab-cli -- --yes transactions create-bulk --input transactions.json
-cargo run -p ynab-cli -- --yes transactions update-bulk --input updates.json
-cargo run -p ynab-cli -- --yes transactions import --input imported.json
-cargo run -p ynab-cli -- transactions export --month 2026-04 --output imported.json
+ynab transactions list --month 2026-04
+ynab transactions list --startdate 2026-04-11 --enddate 2026-04-18 --uncleared-only
+ynab transactions get TRANSACTION_ID
+ynab --yes transactions delete TRANSACTION_ID
+ynab transactions list-account ACCOUNT_ID --since-date 2026-04-01 --transaction-type unapproved
+ynab transactions search --query amazon --month 2026-04
+ynab transactions search --payee "Costco" --memo fuel --startdate 2026-04-01
+ynab --yes transactions create-bulk --input transactions.json
+ynab --yes transactions update-bulk --input updates.json
+ynab --yes transactions import --input imported.json
+ynab transactions export --month 2026-04 --output imported.json
 ```
 
 Bulk transaction commands default `--input` to stdin, so these are equivalent:
 
 ```bash
-cargo run -p ynab-cli -- --yes transactions import --input imported.json
-cargo run -p ynab-cli -- --yes transactions import < imported.json
+ynab --yes transactions import --input imported.json
+ynab --yes transactions import < imported.json
 ```
 
 Create or update a payee:
 
 ```bash
-cargo run -p ynab-cli -- --yes payees create --name "New Payee"
-cargo run -p ynab-cli -- --yes payees update PAYEE_ID --name "Renamed Payee"
+ynab --yes payees create --name "New Payee"
+ynab --yes payees update PAYEE_ID --name "Renamed Payee"
 ```
 
 Create or update a category:
 
 ```bash
-cargo run -p ynab-cli -- --yes categories create --name "New Category" --group-id CATEGORY_GROUP_ID
-cargo run -p ynab-cli -- --yes categories update CATEGORY_ID --name "Renamed Category"
-cargo run -p ynab-cli -- categories get CATEGORY_ID
-cargo run -p ynab-cli -- --yes categories update-month 2026-04 CATEGORY_ID --budgeted 150.00
-cargo run -p ynab-cli -- --yes category-groups create --name "New Group"
-cargo run -p ynab-cli -- --yes category-groups update CATEGORY_GROUP_ID --name "Renamed Group"
+ynab --yes categories create --name "New Category" --group-id CATEGORY_GROUP_ID
+ynab --yes categories update CATEGORY_ID --name "Renamed Category"
+ynab categories get CATEGORY_ID
+ynab --yes categories update-month 2026-04 CATEGORY_ID --budgeted 150.00
+ynab --yes category-groups create --name "New Group"
+ynab --yes category-groups update CATEGORY_GROUP_ID --name "Renamed Group"
 ```
 
 Work with months, scheduled transactions, and location data:
 
 ```bash
-cargo run -p ynab-cli -- months list
-cargo run -p ynab-cli -- months get 2026-04
-cargo run -p ynab-cli -- scheduled-transactions list
-cargo run -p ynab-cli -- --yes scheduled-transactions create --account-name "Checking" --date 2026-05-01 --amount 125.00 --frequency monthly --payee-name "Rent"
-cargo run -p ynab-cli -- money-movements list
-cargo run -p ynab-cli -- money-movement-groups list-month 2026-04
-cargo run -p ynab-cli -- payee-locations list
-cargo run -p ynab-cli -- payee-locations list-payee PAYEE_ID
-cargo run -p ynab-cli -- user get
+ynab months list
+ynab months get 2026-04
+ynab scheduled-transactions list
+ynab --yes scheduled-transactions create --account-name "Checking" --date 2026-05-01 --amount 125.00 --frequency monthly --payee-name "Rent"
+ynab money-movements list
+ynab money-movement-groups list-month 2026-04
+ynab payee-locations list
+ynab payee-locations list-payee PAYEE_ID
+ynab user get
 ```
 
 Start OAuth setup for a distributable integration:
 
 ```bash
-cargo run -p ynab-cli -- auth oauth configure \
+ynab auth oauth configure \
   --client-id YOUR_CLIENT_ID \
   --client-secret YOUR_CLIENT_SECRET \
   --redirect-uri http://127.0.0.1:8765/callback
 
-cargo run -p ynab-cli -- auth login
+ynab auth login
 ```
 
 `auth login` starts a temporary loopback callback server, waits for you to press Enter, opens the browser, captures the YNAB OAuth redirect, exchanges the code, and stores the resulting access and refresh tokens.
@@ -151,14 +157,14 @@ cargo run -p ynab-cli -- auth login
 Check active authentication and storage:
 
 ```bash
-cargo run -p ynab-cli -- auth status
+ynab auth status
 ```
 
 If you want the older manual flow, these commands still work:
 
 ```bash
-cargo run -p ynab-cli -- auth oauth start --open-browser
-cargo run -p ynab-cli -- auth oauth exchange --code YOUR_AUTH_CODE
+ynab auth oauth start --open-browser
+ynab auth oauth exchange --code YOUR_AUTH_CODE
 ```
 
 ## Configuration
@@ -182,9 +188,9 @@ That places config and file-backed secrets under that directory.
 The default output is a compact JSON envelope. Use `--output pretty-json` for readable JSON, `--output jsonl` for line-delimited array output, `--transform PATH` to select a dotted JSON path, and `--raw-output` to print scalar transform results without JSON quoting.
 
 ```bash
-cargo run -p ynab-cli -- --transform plans plans list
-cargo run -p ynab-cli -- --output jsonl --transform transactions transactions list --month 2026-04
-cargo run -p ynab-cli -- --transform default_plan_id --raw-output auth status
+ynab --transform plans plans list
+ynab --output jsonl --transform transactions transactions list --month 2026-04
+ynab --transform default_plan_id --raw-output auth status
 ```
 
 Write commands prompt before changing YNAB data. In non-interactive environments, pass `--yes` after reviewing the command.
