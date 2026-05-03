@@ -2569,7 +2569,7 @@ mod tests {
 
     use super::{
         CallbackConfig, TransactionFilterArgs, TransactionSearchArgs, build_import_export_payload,
-        parse_callback_request, transaction_matches_search, validate_transaction_search_args,
+        build_transaction_search_options, parse_callback_request,
     };
 
     #[test]
@@ -2599,39 +2599,7 @@ mod tests {
     }
 
     #[test]
-    fn transaction_search_requires_a_search_term() {
-        let error = validate_transaction_search_args(&TransactionSearchArgs {
-            filters: TransactionFilterArgs {
-                plan: None,
-                last_knowledge_of_server: None,
-                since_date: None,
-                transaction_type: None,
-                startdate: None,
-                enddate: None,
-                cleared_only: false,
-                uncleared_only: false,
-            },
-            month: None,
-            query: None,
-            payee: None,
-            memo: None,
-            account: None,
-            category: None,
-        })
-        .unwrap_err();
-
-        assert!(error.to_string().contains("transactions search requires"));
-    }
-
-    #[test]
-    fn transaction_search_matches_case_insensitive_fields() {
-        let transaction = json!({
-            "payee_name": "Amazon Marketplace",
-            "memo": "Household restock",
-            "account_name": "Checking",
-            "category_name": "Shopping"
-        });
-
+    fn transaction_search_options_preserve_filters() {
         let args = TransactionSearchArgs {
             filters: TransactionFilterArgs {
                 plan: None,
@@ -2651,7 +2619,11 @@ mod tests {
             category: Some("shop".to_string()),
         };
 
-        assert!(transaction_matches_search(&transaction, &args));
+        let options = build_transaction_search_options(&args);
+        assert_eq!(options.query.as_deref(), Some("restock"));
+        assert_eq!(options.payee.as_deref(), Some("amazon"));
+        assert_eq!(options.account.as_deref(), Some("check"));
+        assert_eq!(options.category.as_deref(), Some("shop"));
     }
 
     #[test]

@@ -73,7 +73,9 @@ impl ScheduledFrequencyParam {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PlanIdParam {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
 }
 
@@ -85,7 +87,9 @@ pub struct PlanGetParam {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AccountCreateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub name: String,
     pub account_type: AccountTypeParam,
@@ -103,7 +107,9 @@ pub struct AccountCreateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ResourceListParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Optional last-known server value for incremental list queries.")]
     pub last_knowledge_of_server: Option<u64>,
@@ -111,13 +117,15 @@ pub struct ResourceListParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListAccountsParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Optional last-known server value for incremental list queries.")]
     pub last_knowledge_of_server: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct ListPlansParams {
     #[schemars(description = "Include plan accounts in the list response.")]
     pub include_accounts: bool,
@@ -125,18 +133,11 @@ pub struct ListPlansParams {
     pub last_knowledge_of_server: Option<u64>,
 }
 
-impl Default for ListPlansParams {
-    fn default() -> Self {
-        Self {
-            include_accounts: false,
-            last_knowledge_of_server: None,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AccountGetParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Account identifier.")]
     pub account_id: String,
@@ -144,7 +145,9 @@ pub struct AccountGetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryGetParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Category identifier.")]
     pub category_id: String,
@@ -152,7 +155,9 @@ pub struct CategoryGetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryCreateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub name: String,
     pub group_id: String,
@@ -166,7 +171,9 @@ pub struct CategoryCreateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryUpdateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub category_id: String,
     pub name: Option<String>,
@@ -181,7 +188,9 @@ pub struct CategoryUpdateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryUpdateMonthParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub month: String,
     pub category_id: String,
@@ -191,14 +200,18 @@ pub struct CategoryUpdateMonthParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryGroupCreateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub name: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryGroupUpdateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub category_group_id: String,
     pub name: String,
@@ -206,14 +219,18 @@ pub struct CategoryGroupUpdateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PayeeCreateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub name: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PayeeUpdateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub payee_id: String,
     pub name: String,
@@ -228,7 +245,9 @@ pub enum ClearedFilterParam {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionsListParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Optional last-known server value for incremental list queries.")]
     pub last_knowledge_of_server: Option<u64>,
@@ -248,7 +267,9 @@ pub struct TransactionsListParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionsSearchParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Optional last-known server value for incremental list queries.")]
     pub last_knowledge_of_server: Option<u64>,
@@ -278,7 +299,9 @@ pub struct TransactionsSearchParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionGetParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Transaction identifier.")]
     pub transaction_id: String,
@@ -286,7 +309,9 @@ pub struct TransactionGetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionCreateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub account_id: Option<String>,
     pub account_name: Option<String>,
@@ -308,7 +333,9 @@ pub struct TransactionCreateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionUpdateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub transaction_id: String,
     pub account_id: Option<String>,
@@ -329,23 +356,31 @@ pub struct TransactionUpdateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionDeleteParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub transaction_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TransactionJsonRequestParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
-    #[schemars(description = "JSON payload matching the corresponding YNAB bulk/import request body.")]
+    #[schemars(
+        description = "JSON payload matching the corresponding YNAB bulk/import request body."
+    )]
     pub request: serde_json::Value,
     pub dry_run: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AccountTransactionsParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Account identifier.")]
     pub account_id: String,
@@ -355,7 +390,9 @@ pub struct AccountTransactionsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CategoryTransactionsParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Category identifier.")]
     pub category_id: String,
@@ -365,7 +402,9 @@ pub struct CategoryTransactionsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PayeeTransactionsParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Payee identifier.")]
     pub payee_id: String,
@@ -375,7 +414,9 @@ pub struct PayeeTransactionsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct MonthGetParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Month in YYYY-MM format.")]
     pub month: String,
@@ -383,7 +424,9 @@ pub struct MonthGetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScheduledTransactionGetParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Scheduled transaction identifier.")]
     pub scheduled_transaction_id: String,
@@ -391,7 +434,9 @@ pub struct ScheduledTransactionGetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScheduledTransactionCreateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub account_id: Option<String>,
     pub account_name: Option<String>,
@@ -409,7 +454,9 @@ pub struct ScheduledTransactionCreateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScheduledTransactionUpdateParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub scheduled_transaction_id: String,
     pub account_id: Option<String>,
@@ -428,14 +475,18 @@ pub struct ScheduledTransactionUpdateParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScheduledTransactionDeleteParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     pub scheduled_transaction_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct MonthScopedListParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Month in YYYY-MM format.")]
     pub month: String,
@@ -443,7 +494,9 @@ pub struct MonthScopedListParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PayeeLocationGetParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Payee location identifier.")]
     pub payee_location_id: String,
@@ -451,7 +504,9 @@ pub struct PayeeLocationGetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PayeeLocationsByPayeeParams {
-    #[schemars(description = "Optional plan identifier. When omitted, the saved default plan is used.")]
+    #[schemars(
+        description = "Optional plan identifier. When omitted, the saved default plan is used."
+    )]
     pub plan_id: Option<String>,
     #[schemars(description = "Payee identifier.")]
     pub payee_id: String,
@@ -506,7 +561,10 @@ impl TransactionsSearchParams {
 impl AccountCreateParams {
     pub fn to_payload(&self) -> Result<serde_json::Value, String> {
         let mut account = serde_json::Map::new();
-        account.insert("name".to_string(), serde_json::Value::String(self.name.clone()));
+        account.insert(
+            "name".to_string(),
+            serde_json::Value::String(self.name.clone()),
+        );
         account.insert(
             "type".to_string(),
             serde_json::Value::String(self.account_type.as_api_value().to_string()),
@@ -528,7 +586,10 @@ impl AccountCreateParams {
             );
         }
         if let Some(value) = self.transfer_payee_id.as_ref() {
-            account.insert("transfer_payee_id".to_string(), serde_json::Value::String(value.clone()));
+            account.insert(
+                "transfer_payee_id".to_string(),
+                serde_json::Value::String(value.clone()),
+            );
         }
         if let Some(value) = self.note.as_ref() {
             account.insert("note".to_string(), serde_json::Value::String(value.clone()));
@@ -549,8 +610,17 @@ impl CategoryCreateParams {
             name: Some(self.name.clone()),
             note: self.note.clone(),
             category_group_id: Some(self.group_id.clone()),
-            goal_target: self.goal_target.as_deref().map(parse_amount).transpose()?.map(|a| a.0),
-            goal_target_date: self.goal_target_date.as_deref().map(normalize_iso_date).transpose()?,
+            goal_target: self
+                .goal_target
+                .as_deref()
+                .map(parse_amount)
+                .transpose()?
+                .map(|a| a.0),
+            goal_target_date: self
+                .goal_target_date
+                .as_deref()
+                .map(normalize_iso_date)
+                .transpose()?,
             goal_needs_whole_amount: self.goal_needs_whole_amount,
         })
     }
@@ -562,8 +632,17 @@ impl CategoryUpdateParams {
             name: self.name.clone(),
             note: self.note.clone(),
             category_group_id: self.group_id.clone(),
-            goal_target: self.goal_target.as_deref().map(parse_amount).transpose()?.map(|a| a.0),
-            goal_target_date: self.goal_target_date.as_deref().map(normalize_iso_date).transpose()?,
+            goal_target: self
+                .goal_target
+                .as_deref()
+                .map(parse_amount)
+                .transpose()?
+                .map(|a| a.0),
+            goal_target_date: self
+                .goal_target_date
+                .as_deref()
+                .map(normalize_iso_date)
+                .transpose()?,
             goal_needs_whole_amount: self.goal_needs_whole_amount,
         };
         if payload.name.is_none()

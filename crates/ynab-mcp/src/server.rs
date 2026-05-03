@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use rmcp::{
-    ServerHandler, tool, tool_handler, tool_router,
+    ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerInfo},
+    tool, tool_handler, tool_router,
 };
 use tokio::sync::Mutex;
 use ynab_core::{AppState, ResolveByNameKind, TransactionCreateInput, TransactionUpdateInput};
@@ -12,13 +13,14 @@ use crate::types::{
     AccountCreateParams, AccountGetParams, AccountTransactionsParams, CategoryCreateParams,
     CategoryGetParams, CategoryGroupCreateParams, CategoryGroupUpdateParams,
     CategoryTransactionsParams, CategoryUpdateMonthParams, CategoryUpdateParams, GetUserParams,
-    ListAccountsParams, ListPlansParams, MonthGetParams, MonthScopedListParams,
-    PayeeCreateParams, PayeeLocationGetParams, PayeeLocationsByPayeeParams, PayeeTransactionsParams,
+    ListAccountsParams, ListPlansParams, MonthGetParams, MonthScopedListParams, PayeeCreateParams,
+    PayeeLocationGetParams, PayeeLocationsByPayeeParams, PayeeTransactionsParams,
     PayeeUpdateParams, PlanGetParam, PlanIdParam, ResourceListParams,
-    ScheduledTransactionCreateParams, ScheduledTransactionDeleteParams, ScheduledTransactionGetParams,
-    ScheduledTransactionUpdateParams, TransactionCreateParams, TransactionDeleteParams,
-    TransactionGetParams, TransactionJsonRequestParams, TransactionUpdateParams,
-    TransactionsListParams, TransactionsSearchParams, normalize_iso_date, parse_amount,
+    ScheduledTransactionCreateParams, ScheduledTransactionDeleteParams,
+    ScheduledTransactionGetParams, ScheduledTransactionUpdateParams, TransactionCreateParams,
+    TransactionDeleteParams, TransactionGetParams, TransactionJsonRequestParams,
+    TransactionUpdateParams, TransactionsListParams, TransactionsSearchParams, normalize_iso_date,
+    parse_amount,
 };
 
 #[derive(Clone)]
@@ -86,7 +88,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List accounts for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List accounts for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_accounts(
         &self,
         params: Parameters<ListAccountsParams>,
@@ -107,7 +111,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "Get an account by identifier. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "Get an account by identifier. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_get_account(
         &self,
         params: Parameters<AccountGetParams>,
@@ -134,7 +140,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.create_account(&plan_id, payload).await)
     }
 
-    #[tool(description = "List categories for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List categories for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_categories(
         &self,
         params: Parameters<ResourceListParams>,
@@ -147,7 +155,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.list_categories(&plan_id, params.0.as_options()).await)
     }
 
-    #[tool(description = "Get a category by identifier. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "Get a category by identifier. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_get_category(
         &self,
         params: Parameters<CategoryGetParams>,
@@ -237,7 +247,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List payees for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List payees for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_payees(
         &self,
         params: Parameters<ResourceListParams>,
@@ -273,10 +285,15 @@ impl YnabMcpServer {
             .resolve_plan_argument(params.0.plan_id.clone())
             .await
             .map_err(crate::tools::to_tool_error)?;
-        crate::tools::render_json(app.update_payee(&plan_id, &params.0.payee_id, params.0.name).await)
+        crate::tools::render_json(
+            app.update_payee(&plan_id, &params.0.payee_id, params.0.name)
+                .await,
+        )
     }
 
-    #[tool(description = "List transactions for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List transactions for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_transactions(
         &self,
         params: Parameters<TransactionsListParams>,
@@ -290,7 +307,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.list_transactions(&plan_id, options).await)
     }
 
-    #[tool(description = "Search transactions by query and/or payee, memo, account, or category filters.")]
+    #[tool(
+        description = "Search transactions by query and/or payee, memo, account, or category filters."
+    )]
     pub async fn ynab_search_transactions(
         &self,
         params: Parameters<TransactionsSearchParams>,
@@ -308,7 +327,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "Get a transaction by identifier. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "Get a transaction by identifier. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_get_transaction(
         &self,
         params: Parameters<TransactionGetParams>,
@@ -318,7 +339,10 @@ impl YnabMcpServer {
             .resolve_plan_argument(params.0.plan_id.clone())
             .await
             .map_err(crate::tools::to_tool_error)?;
-        crate::tools::render_json(app.get_transaction(&plan_id, &params.0.transaction_id).await)
+        crate::tools::render_json(
+            app.get_transaction(&plan_id, &params.0.transaction_id)
+                .await,
+        )
     }
 
     #[tool(description = "Create a transaction.")]
@@ -412,7 +436,12 @@ impl YnabMcpServer {
             plan_id,
             transaction_id: params.0.transaction_id.clone(),
             account_id,
-            date: params.0.date.as_deref().map(normalize_iso_date).transpose()?,
+            date: params
+                .0
+                .date
+                .as_deref()
+                .map(normalize_iso_date)
+                .transpose()?,
             amount: params.0.amount.as_deref().map(parse_amount).transpose()?,
             payee_id,
             payee_name: params.0.payee_name.clone(),
@@ -436,7 +465,10 @@ impl YnabMcpServer {
             .resolve_plan_argument(params.0.plan_id.clone())
             .await
             .map_err(crate::tools::to_tool_error)?;
-        crate::tools::render_json(app.delete_transaction(&plan_id, &params.0.transaction_id).await)
+        crate::tools::render_json(
+            app.delete_transaction(&plan_id, &params.0.transaction_id)
+                .await,
+        )
     }
 
     #[tool(description = "Create transactions in bulk from a JSON request body.")]
@@ -487,7 +519,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List transactions for an account. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List transactions for an account. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_transactions_by_account(
         &self,
         params: Parameters<AccountTransactionsParams>,
@@ -504,7 +538,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List transactions for a category. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List transactions for a category. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_transactions_by_category(
         &self,
         params: Parameters<CategoryTransactionsParams>,
@@ -521,7 +557,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List transactions for a payee. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List transactions for a payee. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_transactions_by_payee(
         &self,
         params: Parameters<PayeeTransactionsParams>,
@@ -538,7 +576,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List months for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List months for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_months(
         &self,
         params: Parameters<PlanIdParam>,
@@ -551,8 +591,13 @@ impl YnabMcpServer {
         crate::tools::render_json(app.list_months(&plan_id).await)
     }
 
-    #[tool(description = "Get a month by YYYY-MM value. If plan_id is omitted, the default plan is used.")]
-    pub async fn ynab_get_month(&self, params: Parameters<MonthGetParams>) -> Result<String, String> {
+    #[tool(
+        description = "Get a month by YYYY-MM value. If plan_id is omitted, the default plan is used."
+    )]
+    pub async fn ynab_get_month(
+        &self,
+        params: Parameters<MonthGetParams>,
+    ) -> Result<String, String> {
         let mut app = self.app.lock().await;
         let plan_id = app
             .resolve_plan_argument(params.0.plan_id.clone())
@@ -561,7 +606,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.get_month(&plan_id, &params.0.month).await)
     }
 
-    #[tool(description = "List scheduled transactions for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List scheduled transactions for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_scheduled_transactions(
         &self,
         params: Parameters<ResourceListParams>,
@@ -577,7 +624,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "Get a scheduled transaction by identifier. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "Get a scheduled transaction by identifier. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_get_scheduled_transaction(
         &self,
         params: Parameters<ScheduledTransactionGetParams>,
@@ -629,9 +678,18 @@ impl YnabMcpServer {
         .await?;
 
         let mut scheduled_transaction = serde_json::Map::new();
-        scheduled_transaction.insert("account_id".to_string(), serde_json::Value::String(account_id));
-        scheduled_transaction.insert("date".to_string(), serde_json::Value::String(normalize_iso_date(&params.0.date)?));
-        scheduled_transaction.insert("amount".to_string(), serde_json::Value::from(parse_amount(&params.0.amount)?.0));
+        scheduled_transaction.insert(
+            "account_id".to_string(),
+            serde_json::Value::String(account_id),
+        );
+        scheduled_transaction.insert(
+            "date".to_string(),
+            serde_json::Value::String(normalize_iso_date(&params.0.date)?),
+        );
+        scheduled_transaction.insert(
+            "amount".to_string(),
+            serde_json::Value::from(parse_amount(&params.0.amount)?.0),
+        );
         scheduled_transaction.insert(
             "frequency".to_string(),
             serde_json::Value::String(params.0.frequency.as_api_value().to_string()),
@@ -640,20 +698,31 @@ impl YnabMcpServer {
             scheduled_transaction.insert("payee_id".to_string(), serde_json::Value::String(value));
         }
         if let Some(value) = params.0.payee_name.as_ref() {
-            scheduled_transaction.insert("payee_name".to_string(), serde_json::Value::String(value.clone()));
+            scheduled_transaction.insert(
+                "payee_name".to_string(),
+                serde_json::Value::String(value.clone()),
+            );
         }
         if let Some(value) = category_id {
-            scheduled_transaction.insert("category_id".to_string(), serde_json::Value::String(value));
+            scheduled_transaction
+                .insert("category_id".to_string(), serde_json::Value::String(value));
         }
         if let Some(value) = params.0.memo.as_ref() {
-            scheduled_transaction.insert("memo".to_string(), serde_json::Value::String(value.clone()));
+            scheduled_transaction
+                .insert("memo".to_string(), serde_json::Value::String(value.clone()));
         }
         if let Some(value) = params.0.flag_color.as_ref() {
-            scheduled_transaction.insert("flag_color".to_string(), serde_json::Value::String(value.clone()));
+            scheduled_transaction.insert(
+                "flag_color".to_string(),
+                serde_json::Value::String(value.clone()),
+            );
         }
         crate::tools::render_json(
-            app.create_scheduled_transaction(&plan_id, serde_json::Value::Object(scheduled_transaction))
-                .await,
+            app.create_scheduled_transaction(
+                &plan_id,
+                serde_json::Value::Object(scheduled_transaction),
+            )
+            .await,
         )
     }
 
@@ -694,28 +763,43 @@ impl YnabMcpServer {
 
         let mut scheduled_transaction = serde_json::Map::new();
         if let Some(value) = account_id {
-            scheduled_transaction.insert("account_id".to_string(), serde_json::Value::String(value));
+            scheduled_transaction
+                .insert("account_id".to_string(), serde_json::Value::String(value));
         }
         if let Some(value) = params.0.date.as_deref() {
-            scheduled_transaction.insert("date".to_string(), serde_json::Value::String(normalize_iso_date(value)?));
+            scheduled_transaction.insert(
+                "date".to_string(),
+                serde_json::Value::String(normalize_iso_date(value)?),
+            );
         }
         if let Some(value) = params.0.amount.as_deref() {
-            scheduled_transaction.insert("amount".to_string(), serde_json::Value::from(parse_amount(value)?.0));
+            scheduled_transaction.insert(
+                "amount".to_string(),
+                serde_json::Value::from(parse_amount(value)?.0),
+            );
         }
         if let Some(value) = payee_id {
             scheduled_transaction.insert("payee_id".to_string(), serde_json::Value::String(value));
         }
         if let Some(value) = params.0.payee_name.as_ref() {
-            scheduled_transaction.insert("payee_name".to_string(), serde_json::Value::String(value.clone()));
+            scheduled_transaction.insert(
+                "payee_name".to_string(),
+                serde_json::Value::String(value.clone()),
+            );
         }
         if let Some(value) = category_id {
-            scheduled_transaction.insert("category_id".to_string(), serde_json::Value::String(value));
+            scheduled_transaction
+                .insert("category_id".to_string(), serde_json::Value::String(value));
         }
         if let Some(value) = params.0.memo.as_ref() {
-            scheduled_transaction.insert("memo".to_string(), serde_json::Value::String(value.clone()));
+            scheduled_transaction
+                .insert("memo".to_string(), serde_json::Value::String(value.clone()));
         }
         if let Some(value) = params.0.flag_color.as_ref() {
-            scheduled_transaction.insert("flag_color".to_string(), serde_json::Value::String(value.clone()));
+            scheduled_transaction.insert(
+                "flag_color".to_string(),
+                serde_json::Value::String(value.clone()),
+            );
         }
         if let Some(value) = params.0.frequency.as_ref() {
             scheduled_transaction.insert(
@@ -724,7 +808,9 @@ impl YnabMcpServer {
             );
         }
         if scheduled_transaction.is_empty() {
-            return Err("scheduled-transactions update requires at least one field to change".to_string());
+            return Err(
+                "scheduled-transactions update requires at least one field to change".to_string(),
+            );
         }
         crate::tools::render_json(
             app.update_scheduled_transaction(
@@ -752,7 +838,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List money movements for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List money movements for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_money_movements(
         &self,
         params: Parameters<PlanIdParam>,
@@ -765,7 +853,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.list_money_movements(&plan_id).await)
     }
 
-    #[tool(description = "List money movements for a month. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List money movements for a month. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_money_movements_by_month(
         &self,
         params: Parameters<MonthScopedListParams>,
@@ -781,7 +871,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List money movement groups for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List money movement groups for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_money_movement_groups(
         &self,
         params: Parameters<PlanIdParam>,
@@ -794,7 +886,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.list_money_movement_groups(&plan_id).await)
     }
 
-    #[tool(description = "List money movement groups for a month. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List money movement groups for a month. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_money_movement_groups_by_month(
         &self,
         params: Parameters<MonthScopedListParams>,
@@ -810,7 +904,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List payee locations for a plan. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List payee locations for a plan. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_payee_locations(
         &self,
         params: Parameters<PlanIdParam>,
@@ -823,7 +919,9 @@ impl YnabMcpServer {
         crate::tools::render_json(app.list_payee_locations(&plan_id).await)
     }
 
-    #[tool(description = "Get a payee location by identifier. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "Get a payee location by identifier. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_get_payee_location(
         &self,
         params: Parameters<PayeeLocationGetParams>,
@@ -839,7 +937,9 @@ impl YnabMcpServer {
         )
     }
 
-    #[tool(description = "List payee locations for a payee. If plan_id is omitted, the default plan is used.")]
+    #[tool(
+        description = "List payee locations for a payee. If plan_id is omitted, the default plan is used."
+    )]
     pub async fn ynab_list_payee_locations_by_payee(
         &self,
         params: Parameters<PayeeLocationsByPayeeParams>,

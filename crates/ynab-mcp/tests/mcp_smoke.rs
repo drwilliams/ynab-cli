@@ -5,11 +5,7 @@ use std::{
     thread,
 };
 
-use rmcp::{
-    ServiceExt,
-    model::CallToolRequestParams,
-    transport::TokioChildProcess,
-};
+use rmcp::{ServiceExt, model::CallToolRequestParams, transport::TokioChildProcess};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 

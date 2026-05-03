@@ -7,5 +7,5 @@ pub fn render_json(result: YnabResult<OutputEnvelope>) -> Result<String, String>
 
 pub fn to_tool_error(error: YnabError) -> String {
     let envelope = error.to_cli_envelope();
-    serde_json::to_string(&envelope).unwrap_or_else(|_| envelope.error.message)
+    serde_json::to_string(&envelope).unwrap_or(envelope.error.message)
 }
