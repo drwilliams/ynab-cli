@@ -363,7 +363,7 @@ fn mcp_print_config_outputs_codex_and_workspace_snippets() {
     let project_dir = temp_dir.path().join("project");
     fs::create_dir_all(&project_dir).unwrap();
 
-    Command::cargo_bin("ynab")
+    let output = Command::cargo_bin("ynab")
         .unwrap()
         .env("YNAB_AGENT_CLI_HOME", temp_dir.path())
         .args([
@@ -375,10 +375,19 @@ fn mcp_print_config_outputs_codex_and_workspace_snippets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"server_name\":\"ynab\""))
-        .stdout(predicate::str::contains("\"codex_config_toml\""))
-        .stdout(predicate::str::contains("\"workspace_mcp_json\""))
-        .stdout(predicate::str::contains(project_dir.to_str().unwrap()));
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let expected_project = project_dir.to_string_lossy().into_owned();
+    assert_eq!(value["data"]["server_name"].as_str(), Some("ynab"));
+    assert!(value["data"]["codex_config_toml"].is_string());
+    assert!(value["data"]["workspace_mcp_json"].is_string());
+    assert_eq!(
+        value["data"]["project"].as_str(),
+        Some(expected_project.as_str())
+    );
 }
 
 #[test]
