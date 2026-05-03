@@ -3234,6 +3234,7 @@ dependencies = [
  "assert_cmd",
  "chrono",
  "clap",
+ "dirs",
  "predicates",
  "serde_json",
  "tempfile",

@@ -78,6 +78,8 @@ enum Commands {
     #[command(subcommand)]
     Auth(AuthCommands),
     #[command(subcommand)]
+    Skill(SkillCommands),
+    #[command(subcommand)]
     Mcp(McpCommands),
     #[command(visible_alias = "budgets")]
     #[command(subcommand)]
@@ -122,6 +124,45 @@ enum AuthCommands {
 enum McpCommands {
     PrintConfig(McpPrintConfigArgs),
     Doctor(McpDoctorArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillCommands {
+    Install(SkillInstallArgs),
+    Status(SkillStatusArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SkillTargetArg {
+    Codex,
+    Claude,
+    Openclaw,
+}
+
+impl SkillTargetArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+            Self::Openclaw => "openclaw",
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct SkillInstallArgs {
+    #[arg(value_enum)]
+    target: SkillTargetArg,
+    #[arg(long)]
+    project: Option<PathBuf>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    force: bool,
+}
+
+#[derive(Debug, Args)]
+struct SkillStatusArgs {
+    #[arg(long)]
+    project: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -804,6 +845,19 @@ struct PayeeLocationsByPayeeArgs {
     payee_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct SkillInstallPlan {
+    target: SkillTargetArg,
+    scope: &'static str,
+    destination: PathBuf,
+    project: Option<String>,
+}
+
+const BUNDLED_SKILL_NAME: &str = "ynab-cli";
+const BUNDLED_SKILL_MARKDOWN: &str = include_str!("../../../skills/ynab-cli/SKILL.md");
+const BUNDLED_SKILL_OPENAI_YAML: &str =
+    include_str!("../../../skills/ynab-cli/agents/openai.yaml");
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let access_token_source = access_token_source_from_args();
@@ -846,6 +900,7 @@ async fn run(
 
     let result = match cli.command {
         Commands::Auth(command) => run_auth(&mut app, command).await,
+        Commands::Skill(command) => run_skill(command).await,
         Commands::Mcp(command) => run_mcp(&mut app, command).await,
         Commands::Plans(command) => run_plans(&mut app, command).await,
         Commands::Accounts(command) => run_accounts(&mut app, command, run_options).await,
@@ -918,6 +973,13 @@ async fn run_auth(app: &mut AppState, command: AuthCommands) -> Result<OutputEnv
         AuthCommands::Whoami => app.whoami().await,
         AuthCommands::Status => app.auth_status(),
         AuthCommands::Logout => app.clear_session(),
+    }
+}
+
+async fn run_skill(command: SkillCommands) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        SkillCommands::Install(args) => run_skill_install(args),
+        SkillCommands::Status(args) => run_skill_status(args),
     }
 }
 
@@ -1584,6 +1646,68 @@ async fn run_mcp_doctor(
     })
 }
 
+fn run_skill_install(args: SkillInstallArgs) -> Result<OutputEnvelope, YnabError> {
+    let plan = resolve_skill_install_plan(args.target, args.project.as_deref())?;
+    install_bundled_skill(&plan, args.force)?;
+
+    Ok(OutputEnvelope {
+        ok: true,
+        data: json!({
+            "target": plan.target.as_str(),
+            "scope": plan.scope,
+            "project": plan.project,
+            "destination": plan.destination,
+            "files_written": [
+                plan.destination.join("SKILL.md"),
+                plan.destination.join("agents").join("openai.yaml")
+            ],
+            "force": args.force,
+            "notes": skill_install_notes(plan.target, plan.scope)
+        }),
+    })
+}
+
+fn run_skill_status(args: SkillStatusArgs) -> Result<OutputEnvelope, YnabError> {
+    let targets = [SkillTargetArg::Codex, SkillTargetArg::Claude, SkillTargetArg::Openclaw]
+        .into_iter()
+        .map(|target| {
+            let default_plan = resolve_skill_install_plan(target, None)?;
+            let project_plan = args
+                .project
+                .as_deref()
+                .map(|project| resolve_skill_install_plan(target, Some(project)))
+                .transpose();
+
+            let project_install = match project_plan {
+                Ok(plan) => plan.map(skill_status_json),
+                Err(error) => Some(json!({
+                    "supported": false,
+                    "error": error.to_string()
+                })),
+            };
+
+            Ok(json!({
+                "target": target.as_str(),
+                "default_install": skill_status_json(default_plan),
+                "project_install": project_install
+            }))
+        })
+        .collect::<Result<Vec<_>, YnabError>>()?;
+
+    Ok(OutputEnvelope {
+        ok: true,
+        data: json!({
+            "skill_name": BUNDLED_SKILL_NAME,
+            "project": args
+                .project
+                .as_deref()
+                .map(normalize_project_path)
+                .transpose()?,
+            "targets": targets
+        }),
+    })
+}
+
 async fn resolve_plan_id(app: &mut AppState, plan: Option<String>) -> Result<String, YnabError> {
     app.resolve_plan_argument(plan).await
 }
@@ -2212,6 +2336,104 @@ fn normalize_project_path(path: &Path) -> Result<String, YnabError> {
         std::env::current_dir()?.join(path)
     };
     Ok(absolute.to_string_lossy().into_owned())
+}
+
+fn resolve_skill_install_plan(
+    target: SkillTargetArg,
+    project: Option<&Path>,
+) -> Result<SkillInstallPlan, YnabError> {
+    let destination = match (target, project) {
+        (SkillTargetArg::Codex, Some(_)) => {
+            return Err(YnabError::Config(
+                "project-scoped Codex skill installs are not currently supported; install to ~/.codex/skills instead".to_string(),
+            ));
+        }
+        (SkillTargetArg::Codex, None) => home_dir_path()?.join(".codex/skills").join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Claude, None) => home_dir_path()?.join(".claude/skills").join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Claude, Some(project)) => absolute_path(project)?.join(".claude/skills").join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Openclaw, None) => home_dir_path()?.join(".openclaw/skills").join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Openclaw, Some(project)) => absolute_path(project)?.join("skills").join(BUNDLED_SKILL_NAME),
+    };
+
+    Ok(SkillInstallPlan {
+        target,
+        scope: if project.is_some() { "project" } else { "user" },
+        destination,
+        project: project.map(normalize_project_path).transpose()?,
+    })
+}
+
+fn install_bundled_skill(plan: &SkillInstallPlan, force: bool) -> Result<(), YnabError> {
+    if plan.destination.exists() {
+        if !force {
+            return Err(YnabError::Config(format!(
+                "skill destination already exists: {} (pass --force to overwrite)",
+                plan.destination.display()
+            )));
+        }
+        fs::remove_dir_all(&plan.destination)?;
+    }
+
+    fs::create_dir_all(plan.destination.join("agents"))?;
+    fs::write(plan.destination.join("SKILL.md"), BUNDLED_SKILL_MARKDOWN)?;
+    fs::write(
+        plan.destination.join("agents").join("openai.yaml"),
+        BUNDLED_SKILL_OPENAI_YAML,
+    )?;
+    Ok(())
+}
+
+fn skill_status_json(plan: SkillInstallPlan) -> Value {
+    let skill_md = plan.destination.join("SKILL.md");
+    let openai_yaml = plan.destination.join("agents").join("openai.yaml");
+    json!({
+        "supported": true,
+        "scope": plan.scope,
+        "project": plan.project,
+        "destination": plan.destination,
+        "installed": skill_md.is_file(),
+        "files": {
+            "skill_md": {
+                "path": skill_md,
+                "exists": skill_md.is_file()
+            },
+            "openai_yaml": {
+                "path": openai_yaml,
+                "exists": openai_yaml.is_file()
+            }
+        }
+    })
+}
+
+fn skill_install_notes(target: SkillTargetArg, scope: &str) -> Vec<&'static str> {
+    match (target, scope) {
+        (SkillTargetArg::Codex, "user") => vec![
+            "Restart Codex if it does not pick up the new user-level skill automatically.",
+            "The agents/openai.yaml file is optional metadata for Codex/OpenAI clients.",
+        ],
+        (SkillTargetArg::Claude, "user") | (SkillTargetArg::Claude, "project") => vec![
+            "Claude Code loads skills from ~/.claude/skills and project-local .claude/skills directories.",
+            "The agents/openai.yaml file can remain present and is ignored by Claude Code.",
+        ],
+        (SkillTargetArg::Openclaw, "user") | (SkillTargetArg::Openclaw, "project") => vec![
+            "OpenClaw loads shared skills from ~/.openclaw/skills and workspace skills from <workspace>/skills.",
+            "The agents/openai.yaml file can remain present and is ignored by OpenClaw.",
+        ],
+        _ => vec![],
+    }
+}
+
+fn home_dir_path() -> Result<PathBuf, YnabError> {
+    dirs::home_dir()
+        .ok_or_else(|| YnabError::Config("unable to determine home directory".to_string()))
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf, YnabError> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
 }
 
 fn codex_config_file_path() -> String {

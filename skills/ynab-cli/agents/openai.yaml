@@ -1,0 +1,4 @@
+interface:
+  display_name: "YNAB CLI"
+  short_description: "Use the ynab CLI for Codex-driven YNAB work"
+  default_prompt: "Use $ynab-cli to work with this YNAB project through the local CLI first, and only switch to MCP setup if I ask for it."

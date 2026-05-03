@@ -4,6 +4,11 @@
 
 This repository also includes a local MCP server, `ynab-mcp`, so MCP-capable clients can use the same YNAB profiles, auth state, and shared core logic without going through the CLI surface.
 
+This repository now also ships a reusable agent skill at `skills/ynab-cli` so you can offer two integration paths:
+
+- CLI + skill (preferred): Codex operates through the local `ynab` executable and shell commands.
+- MCP server: Codex or another MCP-capable client talks to `ynab-mcp` over stdio.
+
 ## Status
 
 This repository currently provides:
@@ -53,6 +58,66 @@ To reinstall after pulling updates:
 ```bash
 cargo install --path crates/ynab-cli --force
 ```
+
+## Two ways to use this project
+
+### 1. CLI + skill (preferred)
+
+This repo includes a distributable, vendor-neutral skill folder at:
+
+```text
+skills/ynab-cli
+```
+
+The core `SKILL.md` is designed to stay generic. The optional `agents/openai.yaml` file is only for Codex/OpenAI UI metadata.
+
+Install paths by client:
+
+```text
+Codex:       ~/.codex/skills/ynab-cli
+Claude Code: ~/.claude/skills/ynab-cli
+OpenClaw:    <workspace>/skills/ynab-cli
+```
+
+For Codex, copy or symlink the full folder so `agents/openai.yaml` is preserved. For Claude Code and OpenClaw, the important file is `SKILL.md`; the extra Codex metadata can remain present and be ignored.
+
+The CLI can install the bundled skill for you:
+
+```bash
+ynab skill install codex
+ynab skill install claude
+ynab skill install claude --project "$PWD"
+ynab skill install openclaw
+ynab skill install openclaw --project "$PWD"
+ynab skill status
+ynab skill status --project "$PWD"
+```
+
+`skill status` reports the resolved install locations and whether the bundled skill is already present. Project-scoped installs are currently supported for Claude Code and OpenClaw. Codex installs currently target the shared `~/.codex/skills` directory.
+
+Once installed, invoke it explicitly with prompts such as:
+
+```text
+Use $ynab-cli to inspect my YNAB auth status and list plans.
+Use $ynab-cli to find uncategorized transactions from April 2026.
+Use $ynab-cli to help me configure MCP for this project, but keep the CLI path as the default workflow.
+```
+
+Claude Code also supports direct slash-style invocation using the skill name, typically `/ynab-cli`, when the skill is installed in its skill directory.
+
+This path keeps the CLI as the primary interface, which is often the simplest option for local development, scripting, and transparent agent behavior across agents.
+
+### 2. MCP server
+
+If you want direct MCP integration instead, build the server and point your MCP client at `ynab-mcp`:
+
+```bash
+cargo build -p ynab-mcp
+cargo run -p ynab-cli -- mcp doctor --project "$PWD"
+cargo run -p ynab-cli -- mcp print-config --project "$PWD"
+```
+
+`mcp doctor` checks whether the server binary and auth state are ready. `mcp print-config` emits project-scoped Codex config and a `.mcp.json` snippet so clients can use generated config instead of hand-written setup.
 
 Build the local MCP server from this checkout:
 

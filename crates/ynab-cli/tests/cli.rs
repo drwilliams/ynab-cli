@@ -415,6 +415,116 @@ fn mcp_doctor_reports_auth_and_project_state() {
         .stdout(predicate::str::contains("\"summary\""));
 }
 
+#[test]
+fn skill_install_codex_writes_user_skill_bundle() {
+    let temp_dir = TempDir::new().unwrap();
+    let home_dir = temp_dir.path().join("home");
+    fs::create_dir_all(&home_dir).unwrap();
+
+    Command::cargo_bin("ynab")
+        .unwrap()
+        .env("HOME", &home_dir)
+        .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
+        .args(["--no-keyring", "skill", "install", "codex"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"target\":\"codex\""))
+        .stdout(predicate::str::contains("\"scope\":\"user\""));
+
+    assert!(home_dir
+        .join(".codex/skills/ynab-cli/SKILL.md")
+        .is_file());
+    assert!(home_dir
+        .join(".codex/skills/ynab-cli/agents/openai.yaml")
+        .is_file());
+}
+
+#[test]
+fn skill_install_openclaw_project_writes_workspace_skill_bundle() {
+    let temp_dir = TempDir::new().unwrap();
+    let home_dir = temp_dir.path().join("home");
+    let project_dir = temp_dir.path().join("workspace");
+    fs::create_dir_all(&home_dir).unwrap();
+    fs::create_dir_all(&project_dir).unwrap();
+
+    Command::cargo_bin("ynab")
+        .unwrap()
+        .env("HOME", &home_dir)
+        .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
+        .args([
+            "--no-keyring",
+            "skill",
+            "install",
+            "openclaw",
+            "--project",
+            project_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"target\":\"openclaw\""))
+        .stdout(predicate::str::contains("\"scope\":\"project\""));
+
+    assert!(project_dir.join("skills/ynab-cli/SKILL.md").is_file());
+    assert!(project_dir
+        .join("skills/ynab-cli/agents/openai.yaml")
+        .is_file());
+}
+
+#[test]
+fn skill_install_codex_project_is_rejected() {
+    let temp_dir = TempDir::new().unwrap();
+    let home_dir = temp_dir.path().join("home");
+    let project_dir = temp_dir.path().join("project");
+    fs::create_dir_all(&home_dir).unwrap();
+    fs::create_dir_all(&project_dir).unwrap();
+
+    Command::cargo_bin("ynab")
+        .unwrap()
+        .env("HOME", &home_dir)
+        .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
+        .args([
+            "--no-keyring",
+            "skill",
+            "install",
+            "codex",
+            "--project",
+            project_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "project-scoped Codex skill installs are not currently supported",
+        ));
+}
+
+#[test]
+fn skill_status_reports_project_support_by_target() {
+    let temp_dir = TempDir::new().unwrap();
+    let home_dir = temp_dir.path().join("home");
+    let project_dir = temp_dir.path().join("project");
+    fs::create_dir_all(&home_dir).unwrap();
+    fs::create_dir_all(&project_dir).unwrap();
+
+    Command::cargo_bin("ynab")
+        .unwrap()
+        .env("HOME", &home_dir)
+        .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
+        .args([
+            "--no-keyring",
+            "skill",
+            "status",
+            "--project",
+            project_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"skill_name\":\"ynab-cli\""))
+        .stdout(predicate::str::contains("\"target\":\"codex\""))
+        .stdout(predicate::str::contains("\"supported\":false"))
+        .stdout(predicate::str::contains("\"target\":\"claude\""))
+        .stdout(predicate::str::contains("\"target\":\"openclaw\""));
+}
+
 fn spawn_json_server(body: String) -> String {
     let (base_url, _) = spawn_json_server_with_request(body);
     base_url
