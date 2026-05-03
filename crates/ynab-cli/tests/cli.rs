@@ -424,6 +424,7 @@ fn skill_install_codex_writes_user_skill_bundle() {
     Command::cargo_bin("ynab")
         .unwrap()
         .env("HOME", &home_dir)
+        .env("USERPROFILE", &home_dir)
         .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
         .args(["--no-keyring", "skill", "install", "codex"])
         .assert()
@@ -450,6 +451,7 @@ fn skill_install_openclaw_project_writes_workspace_skill_bundle() {
     Command::cargo_bin("ynab")
         .unwrap()
         .env("HOME", &home_dir)
+        .env("USERPROFILE", &home_dir)
         .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
         .args([
             "--no-keyring",
@@ -483,6 +485,7 @@ fn skill_install_codex_project_is_rejected() {
     Command::cargo_bin("ynab")
         .unwrap()
         .env("HOME", &home_dir)
+        .env("USERPROFILE", &home_dir)
         .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
         .args([
             "--no-keyring",
@@ -510,6 +513,7 @@ fn skill_status_reports_project_support_by_target() {
     Command::cargo_bin("ynab")
         .unwrap()
         .env("HOME", &home_dir)
+        .env("USERPROFILE", &home_dir)
         .env("YNAB_AGENT_CLI_HOME", temp_dir.path().join("runtime"))
         .args([
             "--no-keyring",
