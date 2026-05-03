@@ -9,7 +9,8 @@ pub mod secrets;
 
 pub use app::{
     AppState, OAuthAppInput, OAuthStartResult, ResolveByNameKind, ResourceListOptions,
-    RuntimeOptions, TransactionCreateInput, TransactionListOptions, TransactionUpdateInput,
+    RuntimeOptions, TransactionCreateInput, TransactionListOptions, TransactionSearchOptions,
+    TransactionUpdateInput,
 };
 pub use config::{AppConfig, ConfigManager, OutputFormat, PendingOAuth, ProfileConfig};
 pub use error::{CliErrorEnvelope, Result, YnabError};

@@ -2,7 +2,8 @@ use std::{
     fs,
     io::{self, IsTerminal, Read, Write},
     net::TcpListener,
-    process::ExitCode,
+    path::{Path, PathBuf},
+    process::{Command as ProcessCommand, ExitCode},
     time::{Duration, Instant},
 };
 
@@ -13,7 +14,8 @@ use url::Url;
 use ynab_core::{
     AmountMilliunits, AppState, OAuthAppInput, OAuthScope, OutputEnvelope, OutputFormat,
     ResolveByNameKind, ResourceListOptions, RuntimeOptions, SaveCategory, TransactionClearedFilter,
-    TransactionCreateInput, TransactionListOptions, TransactionUpdateInput, YnabError,
+    TransactionCreateInput, TransactionListOptions, TransactionSearchOptions,
+    TransactionUpdateInput, YnabError,
 };
 
 #[derive(Debug, Parser)]
@@ -75,6 +77,8 @@ struct RunOptions {
 enum Commands {
     #[command(subcommand)]
     Auth(AuthCommands),
+    #[command(subcommand)]
+    Mcp(McpCommands),
     #[command(visible_alias = "budgets")]
     #[command(subcommand)]
     Plans(PlansCommands),
@@ -112,6 +116,24 @@ enum AuthCommands {
     Whoami,
     Status,
     Logout,
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommands {
+    PrintConfig(McpPrintConfigArgs),
+    Doctor(McpDoctorArgs),
+}
+
+#[derive(Debug, Args)]
+struct McpPrintConfigArgs {
+    #[arg(long)]
+    project: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct McpDoctorArgs {
+    #[arg(long)]
+    project: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -824,6 +846,7 @@ async fn run(
 
     let result = match cli.command {
         Commands::Auth(command) => run_auth(&mut app, command).await,
+        Commands::Mcp(command) => run_mcp(&mut app, command).await,
         Commands::Plans(command) => run_plans(&mut app, command).await,
         Commands::Accounts(command) => run_accounts(&mut app, command, run_options).await,
         Commands::Categories(command) => run_categories(&mut app, command, run_options).await,
@@ -895,6 +918,32 @@ async fn run_auth(app: &mut AppState, command: AuthCommands) -> Result<OutputEnv
         AuthCommands::Whoami => app.whoami().await,
         AuthCommands::Status => app.auth_status(),
         AuthCommands::Logout => app.clear_session(),
+    }
+}
+
+async fn run_mcp(app: &mut AppState, command: McpCommands) -> Result<OutputEnvelope, YnabError> {
+    match command {
+        McpCommands::PrintConfig(args) => {
+            let binary_path = resolve_mcp_binary_path()?;
+            let project_path = normalize_project_path(&args.project)?;
+            Ok(OutputEnvelope {
+                ok: true,
+                data: json!({
+                    "server_name": "ynab",
+                    "project": project_path,
+                    "binary_path": binary_path,
+                    "codex_config_file": codex_config_file_path(),
+                    "codex_config_toml": render_codex_project_config(&project_path, &binary_path),
+                    "workspace_mcp_json": render_workspace_mcp_json(&binary_path),
+                    "notes": [
+                        "Codex typically starts and stops stdio MCP servers for you.",
+                        "For Codex app workspaces, the project-scoped ~/.codex/config.toml stanza is the most reliable setup path.",
+                        "The .mcp.json snippet is included as a fallback for clients that use project-local MCP config files."
+                    ]
+                }),
+            })
+        }
+        McpCommands::Doctor(args) => run_mcp_doctor(app, args).await,
     }
 }
 
@@ -1103,24 +1152,10 @@ async fn run_transactions(
             app.list_transactions(&plan_id, options).await
         }
         TransactionsCommands::Search(args) => {
-            validate_transaction_search_args(&args)?;
             let plan_id = app.resolve_plan_argument(args.filters.plan.clone()).await?;
             let options = build_transaction_list_options(args.filters.clone(), args.month.clone())?;
-            let mut envelope = app.list_transactions(&plan_id, options).await?;
-            let filtered = envelope
-                .data
-                .get("transactions")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|transaction| transaction_matches_search(transaction, &args))
-                .cloned()
-                .collect::<Vec<_>>();
-            envelope.data = json!({
-                "transactions": filtered,
-                "server_knowledge": envelope.data.get("server_knowledge").cloned().unwrap_or(Value::Null),
-            });
-            Ok(envelope)
+            app.search_transactions(&plan_id, options, build_transaction_search_options(&args))
+                .await
         }
         TransactionsCommands::Get(args) => {
             let plan_id = app.resolve_plan_argument(args.plan).await?;
@@ -1496,6 +1531,59 @@ async fn run_user(app: &mut AppState, command: UserCommands) -> Result<OutputEnv
     }
 }
 
+async fn run_mcp_doctor(
+    app: &mut AppState,
+    args: McpDoctorArgs,
+) -> Result<OutputEnvelope, YnabError> {
+    let binary_path = resolve_mcp_binary_path()?;
+    let binary_exists = binary_path.is_file();
+    let binary_help = if binary_exists {
+        Some(run_binary_help_check(&binary_path))
+    } else {
+        None
+    };
+    let auth_status = app.auth_status()?.data;
+    let auth_ready = auth_status["auth_source"].as_str().unwrap_or("none") != "none";
+    let binary_ready = binary_exists
+        && binary_help
+            .as_ref()
+            .and_then(|value| value["ok"].as_bool())
+            .unwrap_or(false);
+    let project = if let Some(project) = args.project {
+        let normalized = normalize_project_path(&project)?;
+        let mcp_json_path = PathBuf::from(&normalized).join(".mcp.json");
+        Some(json!({
+            "path": normalized,
+            "mcp_json_file": mcp_json_path,
+            "mcp_json_exists": mcp_json_path.is_file(),
+            "recommended_codex_config": render_codex_project_config(&normalized, &binary_path),
+            "workspace_mcp_json": render_workspace_mcp_json(&binary_path)
+        }))
+    } else {
+        None
+    };
+
+    Ok(OutputEnvelope {
+        ok: true,
+        data: json!({
+            "binary": {
+                "path": binary_path,
+                "exists": binary_exists,
+                "help_check": binary_help
+            },
+            "auth": auth_status,
+            "codex": {
+                "config_file": codex_config_file_path()
+            },
+            "project": project,
+            "summary": {
+                "binary_ready": binary_ready,
+                "auth_ready": auth_ready
+            }
+        }),
+    })
+}
+
 async fn resolve_plan_id(app: &mut AppState, plan: Option<String>) -> Result<String, YnabError> {
     app.resolve_plan_argument(plan).await
 }
@@ -1582,75 +1670,14 @@ fn build_transaction_list_options(
     })
 }
 
-fn validate_transaction_search_args(args: &TransactionSearchArgs) -> Result<(), YnabError> {
-    if args.query.is_none()
-        && args.payee.is_none()
-        && args.memo.is_none()
-        && args.account.is_none()
-        && args.category.is_none()
-    {
-        return Err(YnabError::Config(
-            "transactions search requires at least one of --query, --payee, --memo, --account, or --category"
-                .to_string(),
-        ));
+fn build_transaction_search_options(args: &TransactionSearchArgs) -> TransactionSearchOptions {
+    TransactionSearchOptions {
+        query: args.query.clone(),
+        payee: args.payee.clone(),
+        memo: args.memo.clone(),
+        account: args.account.clone(),
+        category: args.category.clone(),
     }
-    Ok(())
-}
-
-fn transaction_matches_search(transaction: &Value, args: &TransactionSearchArgs) -> bool {
-    if let Some(query) = args.query.as_deref()
-        && !matches_any_transaction_field(
-            transaction,
-            query,
-            &["payee_name", "memo", "account_name", "category_name"],
-        )
-    {
-        return false;
-    }
-
-    if let Some(payee) = args.payee.as_deref()
-        && !transaction_field_contains(transaction, "payee_name", payee)
-    {
-        return false;
-    }
-
-    if let Some(memo) = args.memo.as_deref()
-        && !transaction_field_contains(transaction, "memo", memo)
-    {
-        return false;
-    }
-
-    if let Some(account) = args.account.as_deref()
-        && !transaction_field_contains(transaction, "account_name", account)
-    {
-        return false;
-    }
-
-    if let Some(category) = args.category.as_deref()
-        && !transaction_field_contains(transaction, "category_name", category)
-    {
-        return false;
-    }
-
-    true
-}
-
-fn matches_any_transaction_field(transaction: &Value, needle: &str, fields: &[&str]) -> bool {
-    fields
-        .iter()
-        .any(|field| transaction_field_contains(transaction, field, needle))
-}
-
-fn transaction_field_contains(transaction: &Value, field: &str, needle: &str) -> bool {
-    let needle = needle.trim();
-    if needle.is_empty() {
-        return false;
-    }
-    transaction
-        .get(field)
-        .and_then(Value::as_str)
-        .map(|value| value.to_lowercase().contains(&needle.to_lowercase()))
-        .unwrap_or(false)
 }
 
 fn build_account_payload(args: AccountCreateArgs) -> Result<Value, YnabError> {
@@ -2154,6 +2181,88 @@ fn render_json(options: &RenderOptions, value: &Value) -> String {
         OutputFormat::Jsonl => render_jsonl(&value),
     };
     format!("{rendered}\n")
+}
+
+fn resolve_mcp_binary_path() -> Result<PathBuf, YnabError> {
+    let current_exe = std::env::current_exe()?;
+    let current_dir = current_exe.parent().ok_or_else(|| {
+        YnabError::Config("unable to determine the current executable directory".to_string())
+    })?;
+    let binary_name = format!("ynab-mcp{}", std::env::consts::EXE_SUFFIX);
+    let sibling = current_dir.join(&binary_name);
+    if sibling.exists() {
+        return Ok(sibling);
+    }
+
+    if let Some(target_dir) = current_dir.parent() {
+        let target_fallback = target_dir.join(&binary_name);
+        if target_fallback.exists() {
+            return Ok(target_fallback);
+        }
+        return Ok(target_fallback);
+    }
+
+    Ok(sibling)
+}
+
+fn normalize_project_path(path: &Path) -> Result<String, YnabError> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    Ok(absolute.to_string_lossy().into_owned())
+}
+
+fn codex_config_file_path() -> String {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("~"))
+        .join(".codex/config.toml")
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn render_codex_project_config(project: &str, binary_path: &Path) -> String {
+    let project = toml_basic_string(project);
+    let command = toml_basic_string(&binary_path.to_string_lossy());
+    format!(
+        "[projects.{project}]\ntrust_level = \"trusted\"\n\n[projects.{project}.mcp_servers.ynab]\ncommand = {command}\nargs = [\"--profile\", \"default\"]"
+    )
+}
+
+fn render_workspace_mcp_json(binary_path: &Path) -> String {
+    let escaped_path = json_string(&binary_path.to_string_lossy());
+    format!(
+        "{{\n  \"mcpServers\": {{\n    \"ynab\": {{\n      \"command\": {escaped_path},\n      \"args\": [\"--profile\", \"default\"]\n    }}\n  }}\n}}"
+    )
+}
+
+fn toml_basic_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('\"', "\\\""))
+}
+
+fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap()
+}
+
+fn run_binary_help_check(path: &Path) -> Value {
+    match ProcessCommand::new(path).arg("--help").output() {
+        Ok(output) => json!({
+            "ok": output.status.success(),
+            "status": output.status.code(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim(),
+            "stdout_preview": String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .take(3)
+                .collect::<Vec<_>>()
+                .join("\n")
+        }),
+        Err(error) => json!({
+            "ok": false,
+            "error": error.to_string()
+        }),
+    }
 }
 
 fn transform_json(value: &Value, path: &str) -> Value {

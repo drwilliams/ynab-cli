@@ -357,6 +357,55 @@ fn transactions_search_requires_at_least_one_search_term() {
         ));
 }
 
+#[test]
+fn mcp_print_config_outputs_codex_and_workspace_snippets() {
+    let temp_dir = TempDir::new().unwrap();
+    let project_dir = temp_dir.path().join("project");
+    fs::create_dir_all(&project_dir).unwrap();
+
+    Command::cargo_bin("ynab")
+        .unwrap()
+        .env("YNAB_AGENT_CLI_HOME", temp_dir.path())
+        .args([
+            "--no-keyring",
+            "mcp",
+            "print-config",
+            "--project",
+            project_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"server_name\":\"ynab\""))
+        .stdout(predicate::str::contains("\"codex_config_toml\""))
+        .stdout(predicate::str::contains("\"workspace_mcp_json\""))
+        .stdout(predicate::str::contains(project_dir.to_str().unwrap()));
+}
+
+#[test]
+fn mcp_doctor_reports_auth_and_project_state() {
+    let temp_dir = TempDir::new().unwrap();
+    let project_dir = temp_dir.path().join("project");
+    fs::create_dir_all(&project_dir).unwrap();
+    fs::write(project_dir.join(".mcp.json"), "{}").unwrap();
+
+    Command::cargo_bin("ynab")
+        .unwrap()
+        .env("YNAB_AGENT_CLI_HOME", temp_dir.path())
+        .args([
+            "--no-keyring",
+            "mcp",
+            "doctor",
+            "--project",
+            project_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"binary\""))
+        .stdout(predicate::str::contains("\"auth_source\":\"none\""))
+        .stdout(predicate::str::contains("\"mcp_json_exists\":true"))
+        .stdout(predicate::str::contains("\"summary\""));
+}
+
 fn spawn_json_server(body: String) -> String {
     let (base_url, _) = spawn_json_server_with_request(body);
     base_url

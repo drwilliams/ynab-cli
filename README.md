@@ -1,17 +1,21 @@
 # ynab-agent-cli
 
-`ynab-agent-cli` is a JSON-first command-line client for the YNAB API that is designed for local automation and AI-agent use.
+`ynab-agent-cli` is an AI-agent-first command-line client for the YNAB API. It is built to work well for humans in a terminal, for local automation, and for agent tooling that wants stable JSON I/O instead of screen-scraping a traditional CLI.
+
+This repository also includes a local MCP server, `ynab-mcp`, so MCP-capable clients can use the same YNAB profiles, auth state, and shared core logic without going through the CLI surface.
 
 ## Status
 
 This repository currently provides:
 
+- an AI-agent-first CLI with stable JSON success and error envelopes
+- a companion local MCP server for MCP-capable clients
 - personal access token auth
 - OAuth app configuration and PKCE-backed authorization code flow
 - one-shot token overrides via `--access-token` or `YNAB_ACCESS_TOKEN`
 - secure secret storage via OS keyring, with a file-backed fallback when `--no-keyring` is used
 - command coverage for the current YNAB API families: plans, accounts, categories, category groups, payees, transactions, months, scheduled transactions, money movements, payee locations, and user
-- stable JSON success/error envelopes on stdout/stderr, with optional transforms and JSON Lines output
+- optional transforms and JSON Lines output for scripting and agent workflows
 
 The implementation targets the current YNAB `/plans/...` API surface. The `plans` command includes a `budgets` alias for familiarity with the legacy naming.
 
@@ -50,10 +54,22 @@ To reinstall after pulling updates:
 cargo install --path crates/ynab-cli --force
 ```
 
+Build the local MCP server from this checkout:
+
+```bash
+cargo build -p ynab-mcp
+```
+
 Contributors can also run commands from the checkout without installing:
 
 ```bash
 cargo run -p ynab-cli -- plans list
+```
+
+Run the MCP server over stdio:
+
+```bash
+cargo run -p ynab-mcp --
 ```
 
 Set a personal access token:
@@ -204,3 +220,86 @@ http://127.0.0.1:8765/callback
 ```
 
 The interactive login flow currently requires an `http://` redirect URI bound to `127.0.0.1`, `localhost`, or `::1`, with an explicit port.
+
+## MCP Server
+
+This repository now includes a local MCP server crate at `crates/ynab-mcp`.
+
+Current tool coverage reuses the existing `ynab-core` methods for both read and common write operations:
+
+- `ynab_auth_status`
+- `ynab_whoami`
+- `ynab_get_plan`
+- `ynab_get_plan_settings`
+- `ynab_set_default_plan`
+- `ynab_list_plans`
+- `ynab_list_accounts`
+- `ynab_get_account`
+- `ynab_create_account`
+- `ynab_list_categories`
+- `ynab_get_category`
+- `ynab_create_category`
+- `ynab_update_category`
+- `ynab_update_month_category`
+- `ynab_create_category_group`
+- `ynab_update_category_group`
+- `ynab_list_payees`
+- `ynab_create_payee`
+- `ynab_update_payee`
+- `ynab_list_transactions`
+- `ynab_search_transactions`
+- `ynab_get_transaction`
+- `ynab_create_transaction`
+- `ynab_update_transaction`
+- `ynab_delete_transaction`
+- `ynab_create_transactions_bulk`
+- `ynab_update_transactions_bulk`
+- `ynab_import_transactions`
+- `ynab_list_transactions_by_account`
+- `ynab_list_transactions_by_category`
+- `ynab_list_transactions_by_payee`
+- `ynab_list_months`
+- `ynab_get_month`
+- `ynab_list_scheduled_transactions`
+- `ynab_get_scheduled_transaction`
+- `ynab_create_scheduled_transaction`
+- `ynab_update_scheduled_transaction`
+- `ynab_delete_scheduled_transaction`
+- `ynab_list_money_movements`
+- `ynab_list_money_movements_by_month`
+- `ynab_list_money_movement_groups`
+- `ynab_list_money_movement_groups_by_month`
+- `ynab_list_payee_locations`
+- `ynab_get_payee_location`
+- `ynab_list_payee_locations_by_payee`
+- `ynab_get_user`
+
+The server reuses the same profile, runtime home, keyring behavior, `--base-url`, and one-shot access token override patterns as the CLI.
+
+The CLI also includes a couple of MCP setup helpers:
+
+```bash
+ynab mcp print-config --project /absolute/path/to/project
+ynab mcp doctor --project /absolute/path/to/project
+```
+
+`print-config` emits both a project-scoped Codex config snippet and a `.mcp.json` snippet. `doctor` checks the companion `ynab-mcp` binary, reports the current auth/profile state, and optionally inspects whether a project already has a local `.mcp.json`.
+
+You can run it directly:
+
+```bash
+cargo run -p ynab-mcp -- --profile default
+```
+
+Or point an MCP client at the built binary:
+
+```json
+{
+  "mcpServers": {
+    "ynab": {
+      "command": "/absolute/path/to/target/debug/ynab-mcp",
+      "args": ["--profile", "default"]
+    }
+  }
+}
+```

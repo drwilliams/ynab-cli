@@ -75,6 +75,15 @@ pub struct TransactionListOptions {
     pub cleared_filter: Option<TransactionClearedFilter>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TransactionSearchOptions {
+    pub query: Option<String>,
+    pub payee: Option<String>,
+    pub memo: Option<String>,
+    pub account: Option<String>,
+    pub category: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TransactionCreateInput {
     pub plan_id: String,
@@ -720,6 +729,30 @@ impl AppState {
             )
             .await?;
         Ok(Self::ok(data))
+    }
+
+    pub async fn search_transactions(
+        &mut self,
+        plan_id: &str,
+        list_options: TransactionListOptions,
+        search_options: TransactionSearchOptions,
+    ) -> Result<OutputEnvelope> {
+        validate_transaction_search_options(&search_options)?;
+        let mut envelope = self.list_transactions(plan_id, list_options).await?;
+        let filtered = envelope
+            .data
+            .get("transactions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|transaction| transaction_matches_search(transaction, &search_options))
+            .cloned()
+            .collect::<Vec<_>>();
+        envelope.data = json!({
+            "transactions": filtered,
+            "server_knowledge": envelope.data.get("server_knowledge").cloned().unwrap_or(Value::Null),
+        });
+        Ok(envelope)
     }
 
     pub async fn delete_transaction(
@@ -1643,6 +1676,77 @@ fn matches_cleared_filter(status: &str, filter: TransactionClearedFilter) -> boo
         TransactionClearedFilter::Cleared => matches!(status, "cleared" | "reconciled"),
         TransactionClearedFilter::Uncleared => status == "uncleared",
     }
+}
+
+fn validate_transaction_search_options(options: &TransactionSearchOptions) -> Result<()> {
+    if options.query.is_none()
+        && options.payee.is_none()
+        && options.memo.is_none()
+        && options.account.is_none()
+        && options.category.is_none()
+    {
+        return Err(YnabError::Config(
+            "transactions search requires at least one of query, payee, memo, account, or category"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn transaction_matches_search(transaction: &Value, options: &TransactionSearchOptions) -> bool {
+    if let Some(query) = options.query.as_deref()
+        && !matches_any_transaction_field(
+            transaction,
+            query,
+            &["payee_name", "memo", "account_name", "category_name"],
+        )
+    {
+        return false;
+    }
+
+    if let Some(payee) = options.payee.as_deref()
+        && !transaction_field_contains(transaction, "payee_name", payee)
+    {
+        return false;
+    }
+
+    if let Some(memo) = options.memo.as_deref()
+        && !transaction_field_contains(transaction, "memo", memo)
+    {
+        return false;
+    }
+
+    if let Some(account) = options.account.as_deref()
+        && !transaction_field_contains(transaction, "account_name", account)
+    {
+        return false;
+    }
+
+    if let Some(category) = options.category.as_deref()
+        && !transaction_field_contains(transaction, "category_name", category)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn matches_any_transaction_field(transaction: &Value, needle: &str, fields: &[&str]) -> bool {
+    fields
+        .iter()
+        .any(|field| transaction_field_contains(transaction, field, needle))
+}
+
+fn transaction_field_contains(transaction: &Value, field: &str, needle: &str) -> bool {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return false;
+    }
+    transaction
+        .get(field)
+        .and_then(Value::as_str)
+        .map(|value| value.to_lowercase().contains(&needle.to_lowercase()))
+        .unwrap_or(false)
 }
 
 fn default_plan_auth_fields(

@@ -2,6 +2,7 @@
 members = [
   "crates/ynab-core",
   "crates/ynab-cli",
+  "crates/ynab-mcp",
 ]
 resolver = "2"
 
@@ -21,6 +22,8 @@ keyring = { version = "3.6", features = ["apple-native", "linux-native-sync-pers
 predicates = "3.1"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rmcp = { version = "1.6.0", features = ["server", "transport-io"] }
+schemars = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
