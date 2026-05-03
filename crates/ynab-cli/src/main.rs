@@ -855,8 +855,7 @@ struct SkillInstallPlan {
 
 const BUNDLED_SKILL_NAME: &str = "ynab-cli";
 const BUNDLED_SKILL_MARKDOWN: &str = include_str!("../../../skills/ynab-cli/SKILL.md");
-const BUNDLED_SKILL_OPENAI_YAML: &str =
-    include_str!("../../../skills/ynab-cli/agents/openai.yaml");
+const BUNDLED_SKILL_OPENAI_YAML: &str = include_str!("../../../skills/ynab-cli/agents/openai.yaml");
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -1668,31 +1667,35 @@ fn run_skill_install(args: SkillInstallArgs) -> Result<OutputEnvelope, YnabError
 }
 
 fn run_skill_status(args: SkillStatusArgs) -> Result<OutputEnvelope, YnabError> {
-    let targets = [SkillTargetArg::Codex, SkillTargetArg::Claude, SkillTargetArg::Openclaw]
-        .into_iter()
-        .map(|target| {
-            let default_plan = resolve_skill_install_plan(target, None)?;
-            let project_plan = args
-                .project
-                .as_deref()
-                .map(|project| resolve_skill_install_plan(target, Some(project)))
-                .transpose();
+    let targets = [
+        SkillTargetArg::Codex,
+        SkillTargetArg::Claude,
+        SkillTargetArg::Openclaw,
+    ]
+    .into_iter()
+    .map(|target| {
+        let default_plan = resolve_skill_install_plan(target, None)?;
+        let project_plan = args
+            .project
+            .as_deref()
+            .map(|project| resolve_skill_install_plan(target, Some(project)))
+            .transpose();
 
-            let project_install = match project_plan {
-                Ok(plan) => plan.map(skill_status_json),
-                Err(error) => Some(json!({
-                    "supported": false,
-                    "error": error.to_string()
-                })),
-            };
+        let project_install = match project_plan {
+            Ok(plan) => plan.map(skill_status_json),
+            Err(error) => Some(json!({
+                "supported": false,
+                "error": error.to_string()
+            })),
+        };
 
-            Ok(json!({
-                "target": target.as_str(),
-                "default_install": skill_status_json(default_plan),
-                "project_install": project_install
-            }))
-        })
-        .collect::<Result<Vec<_>, YnabError>>()?;
+        Ok(json!({
+            "target": target.as_str(),
+            "default_install": skill_status_json(default_plan),
+            "project_install": project_install
+        }))
+    })
+    .collect::<Result<Vec<_>, YnabError>>()?;
 
     Ok(OutputEnvelope {
         ok: true,
@@ -2348,11 +2351,21 @@ fn resolve_skill_install_plan(
                 "project-scoped Codex skill installs are not currently supported; install to ~/.codex/skills instead".to_string(),
             ));
         }
-        (SkillTargetArg::Codex, None) => home_dir_path()?.join(".codex/skills").join(BUNDLED_SKILL_NAME),
-        (SkillTargetArg::Claude, None) => home_dir_path()?.join(".claude/skills").join(BUNDLED_SKILL_NAME),
-        (SkillTargetArg::Claude, Some(project)) => absolute_path(project)?.join(".claude/skills").join(BUNDLED_SKILL_NAME),
-        (SkillTargetArg::Openclaw, None) => home_dir_path()?.join(".openclaw/skills").join(BUNDLED_SKILL_NAME),
-        (SkillTargetArg::Openclaw, Some(project)) => absolute_path(project)?.join("skills").join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Codex, None) => home_dir_path()?
+            .join(".codex/skills")
+            .join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Claude, None) => home_dir_path()?
+            .join(".claude/skills")
+            .join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Claude, Some(project)) => absolute_path(project)?
+            .join(".claude/skills")
+            .join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Openclaw, None) => home_dir_path()?
+            .join(".openclaw/skills")
+            .join(BUNDLED_SKILL_NAME),
+        (SkillTargetArg::Openclaw, Some(project)) => absolute_path(project)?
+            .join("skills")
+            .join(BUNDLED_SKILL_NAME),
     };
 
     Ok(SkillInstallPlan {

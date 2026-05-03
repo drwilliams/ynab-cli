@@ -431,12 +431,12 @@ fn skill_install_codex_writes_user_skill_bundle() {
         .stdout(predicate::str::contains("\"target\":\"codex\""))
         .stdout(predicate::str::contains("\"scope\":\"user\""));
 
-    assert!(home_dir
-        .join(".codex/skills/ynab-cli/SKILL.md")
-        .is_file());
-    assert!(home_dir
-        .join(".codex/skills/ynab-cli/agents/openai.yaml")
-        .is_file());
+    assert!(home_dir.join(".codex/skills/ynab-cli/SKILL.md").is_file());
+    assert!(
+        home_dir
+            .join(".codex/skills/ynab-cli/agents/openai.yaml")
+            .is_file()
+    );
 }
 
 #[test]
@@ -465,9 +465,11 @@ fn skill_install_openclaw_project_writes_workspace_skill_bundle() {
         .stdout(predicate::str::contains("\"scope\":\"project\""));
 
     assert!(project_dir.join("skills/ynab-cli/SKILL.md").is_file());
-    assert!(project_dir
-        .join("skills/ynab-cli/agents/openai.yaml")
-        .is_file());
+    assert!(
+        project_dir
+            .join("skills/ynab-cli/agents/openai.yaml")
+            .is_file()
+    );
 }
 
 #[test]
