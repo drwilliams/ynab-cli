@@ -421,7 +421,7 @@ fn skill_install_codex_writes_user_skill_bundle() {
     let home_dir = temp_dir.path().join("home");
     fs::create_dir_all(&home_dir).unwrap();
 
-    Command::cargo_bin("ynab")
+    let output = Command::cargo_bin("ynab")
         .unwrap()
         .env("HOME", &home_dir)
         .env("USERPROFILE", &home_dir)
@@ -430,14 +430,15 @@ fn skill_install_codex_writes_user_skill_bundle() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"target\":\"codex\""))
-        .stdout(predicate::str::contains("\"scope\":\"user\""));
+        .stdout(predicate::str::contains("\"scope\":\"user\""))
+        .get_output()
+        .stdout
+        .clone();
 
-    assert!(home_dir.join(".codex/skills/ynab-cli/SKILL.md").is_file());
-    assert!(
-        home_dir
-            .join(".codex/skills/ynab-cli/agents/openai.yaml")
-            .is_file()
-    );
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let destination = std::path::PathBuf::from(value["data"]["destination"].as_str().unwrap());
+    assert!(destination.join("SKILL.md").is_file());
+    assert!(destination.join("agents/openai.yaml").is_file());
 }
 
 #[test]
