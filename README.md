@@ -59,6 +59,29 @@ To reinstall after pulling updates:
 cargo install --path crates/ynab-cli --force
 ```
 
+## Git hook
+
+To block pushes when formatting, lint, or tests fail, enable the repo-local pre-push hook once:
+
+```bash
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-push scripts/pre-push-check.sh
+```
+
+After that, every `git push` runs:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+You can also run the same gate manually:
+
+```bash
+./scripts/pre-push-check.sh
+```
+
 ## Two ways to use this project
 
 ### 1. CLI + skill (preferred)
