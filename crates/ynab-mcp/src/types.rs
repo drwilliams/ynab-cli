@@ -34,20 +34,62 @@ impl AccountTypeParam {
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
 pub enum ScheduledFrequencyParam {
+    #[serde(rename = "never", alias = "Never")]
     Never,
+    #[serde(rename = "daily", alias = "Daily")]
     Daily,
+    #[serde(rename = "weekly", alias = "Weekly")]
     Weekly,
+    #[serde(
+        rename = "everyOtherWeek",
+        alias = "EveryOtherWeek",
+        alias = "every_other_week"
+    )]
     EveryOtherWeek,
+    #[serde(rename = "twiceAMonth", alias = "TwiceAMonth", alias = "twice_a_month")]
     TwiceAMonth,
+    #[serde(
+        rename = "every4Weeks",
+        alias = "Every4Weeks",
+        alias = "every_4_weeks",
+        alias = "every4_weeks"
+    )]
     Every4Weeks,
+    #[serde(rename = "monthly", alias = "Monthly")]
     Monthly,
+    #[serde(
+        rename = "everyOtherMonth",
+        alias = "EveryOtherMonth",
+        alias = "every_other_month"
+    )]
     EveryOtherMonth,
+    #[serde(
+        rename = "every3Months",
+        alias = "Every3Months",
+        alias = "everyThreeMonths",
+        alias = "EveryThreeMonths",
+        alias = "every_3_months",
+        alias = "every3_months",
+        alias = "every_three_months"
+    )]
     Every3Months,
+    #[serde(
+        rename = "every4Months",
+        alias = "Every4Months",
+        alias = "every_4_months",
+        alias = "every4_months"
+    )]
     Every4Months,
+    #[serde(rename = "twiceAYear", alias = "TwiceAYear", alias = "twice_a_year")]
     TwiceAYear,
+    #[serde(rename = "yearly", alias = "Yearly")]
     Yearly,
+    #[serde(
+        rename = "everyOtherYear",
+        alias = "EveryOtherYear",
+        alias = "every_other_year"
+    )]
     EveryOtherYear,
 }
 
@@ -68,6 +110,47 @@ impl ScheduledFrequencyParam {
             Self::Yearly => "yearly",
             Self::EveryOtherYear => "everyOtherYear",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ScheduledFrequencyParam;
+
+    #[test]
+    fn scheduled_frequency_param_accepts_public_api_aliases() {
+        let value: ScheduledFrequencyParam = serde_json::from_str("\"twiceAMonth\"").unwrap();
+        assert!(matches!(value, ScheduledFrequencyParam::TwiceAMonth));
+    }
+
+    #[test]
+    fn scheduled_frequency_param_accepts_pascal_case_aliases() {
+        let value: ScheduledFrequencyParam = serde_json::from_str("\"TwiceAMonth\"").unwrap();
+        assert!(matches!(value, ScheduledFrequencyParam::TwiceAMonth));
+    }
+
+    #[test]
+    fn scheduled_frequency_param_accepts_support_aliases() {
+        let value: ScheduledFrequencyParam = serde_json::from_str("\"everyThreeMonths\"").unwrap();
+        assert!(matches!(value, ScheduledFrequencyParam::Every3Months));
+    }
+
+    #[test]
+    fn scheduled_frequency_param_accepts_legacy_snake_case_values() {
+        for (input, expected) in [
+            ("\"every4_weeks\"", "every4Weeks"),
+            ("\"every3_months\"", "every3Months"),
+            ("\"every4_months\"", "every4Months"),
+        ] {
+            let value: ScheduledFrequencyParam = serde_json::from_str(input).unwrap();
+            assert_eq!(value.as_api_value(), expected);
+        }
+    }
+
+    #[test]
+    fn scheduled_frequency_param_sends_spec_value_for_every_3_months() {
+        let value: ScheduledFrequencyParam = serde_json::from_str("\"everyThreeMonths\"").unwrap();
+        assert_eq!(value.as_api_value(), "every3Months");
     }
 }
 
