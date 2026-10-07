@@ -91,7 +91,7 @@ fn first_text(result: &rmcp::model::CallToolResult) -> anyhow::Result<&str> {
     result
         .content
         .first()
-        .and_then(|content| content.raw.as_text())
+        .and_then(|content| content.as_text())
         .map(|text| text.text.as_str())
         .ok_or_else(|| anyhow::anyhow!("expected text content in tool result"))
 }

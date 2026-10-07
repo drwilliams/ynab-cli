@@ -878,7 +878,7 @@ async fn main() -> ExitCode {
 async fn run(
     cli: Cli,
     access_token_source: Option<&'static str>,
-) -> Result<(RenderOptions, OutputEnvelope), (RenderOptions, YnabError)> {
+) -> Result<(RenderOptions, OutputEnvelope), (RenderOptions, Box<YnabError>)> {
     let output_format: OutputFormat = cli.output.into();
     let transform = cli.transform.or(cli.query);
     let render_options = RenderOptions {
@@ -895,7 +895,7 @@ async fn run(
         access_token_override: cli.access_token,
         access_token_override_source: access_token_source,
     })
-    .map_err(|error| (render_options.clone(), error))?;
+    .map_err(|error| (render_options.clone(), Box::new(error)))?;
 
     let result = match cli.command {
         Commands::Auth(command) => run_auth(&mut app, command).await,
@@ -923,7 +923,7 @@ async fn run(
 
     result
         .map(|value| (render_options.clone(), value))
-        .map_err(|error| (render_options, error))
+        .map_err(|error| (render_options, Box::new(error)))
 }
 
 fn access_token_source_from_args() -> Option<&'static str> {
