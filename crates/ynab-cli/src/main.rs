@@ -717,26 +717,53 @@ struct MonthGetArgs {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ScheduledFrequencyArg {
+    #[value(alias = "Never")]
     Never,
+    #[value(alias = "Daily")]
     Daily,
+    #[value(alias = "Weekly")]
     Weekly,
-    #[value(name = "every-other-week")]
+    #[value(
+        name = "every-other-week",
+        alias = "everyOtherWeek",
+        alias = "EveryOtherWeek"
+    )]
     EveryOtherWeek,
-    #[value(name = "twice-a-month")]
+    #[value(name = "twice-a-month", alias = "twiceAMonth", alias = "TwiceAMonth")]
     TwiceAMonth,
-    #[value(name = "every-4-weeks")]
+    #[value(name = "every-4-weeks", alias = "every4Weeks", alias = "Every4Weeks")]
     Every4Weeks,
+    #[value(alias = "Monthly")]
     Monthly,
-    #[value(name = "every-other-month")]
+    #[value(
+        name = "every-other-month",
+        alias = "everyOtherMonth",
+        alias = "EveryOtherMonth"
+    )]
     EveryOtherMonth,
-    #[value(name = "every-3-months")]
+    #[value(
+        name = "every-3-months",
+        alias = "every3Months",
+        alias = "everyThreeMonths",
+        alias = "Every3Months",
+        alias = "EveryThreeMonths"
+    )]
     Every3Months,
-    #[value(name = "every-4-months")]
+    #[value(
+        name = "every-4-months",
+        alias = "every4Months",
+        alias = "Every4Months"
+    )]
     Every4Months,
-    #[value(name = "twice-a-year")]
+    #[value(name = "twice-a-year", alias = "twiceAYear", alias = "TwiceAYear")]
     TwiceAYear,
+    #[value(alias = "Yearly")]
     Yearly,
-    #[value(name = "every-other-year")]
+    #[value(
+        name = "every-other-year",
+        alias = "everyOtherYear",
+        alias = "EveryOtherYear"
+    )]
     EveryOtherYear,
 }
 
@@ -2803,9 +2830,11 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        CallbackConfig, TransactionFilterArgs, TransactionSearchArgs, build_import_export_payload,
+        CallbackConfig, Cli, Commands, ScheduledFrequencyArg, ScheduledTransactionsCommands,
+        TransactionFilterArgs, TransactionSearchArgs, build_import_export_payload,
         build_transaction_search_options, parse_callback_request,
     };
+    use clap::Parser;
 
     #[test]
     fn parses_loopback_redirect_uri() {
@@ -2921,5 +2950,65 @@ mod tests {
         .unwrap();
 
         assert_eq!(payload, json!({ "transactions": [] }));
+    }
+
+    #[test]
+    fn scheduled_transaction_update_accepts_api_frequency_aliases() {
+        let cli = Cli::try_parse_from([
+            "ynab",
+            "scheduled-transactions",
+            "update",
+            "scheduled-transaction-1",
+            "--frequency",
+            "TwiceAMonth",
+        ])
+        .unwrap();
+
+        let Commands::ScheduledTransactions(command) = cli.command else {
+            panic!("expected scheduled-transactions command");
+        };
+
+        let ScheduledTransactionsCommands::Update(args) = *command else {
+            panic!("expected scheduled-transactions update command");
+        };
+
+        assert!(matches!(
+            args.frequency,
+            Some(ScheduledFrequencyArg::TwiceAMonth)
+        ));
+    }
+
+    #[test]
+    fn scheduled_transaction_update_accepts_support_frequency_aliases() {
+        let cli = Cli::try_parse_from([
+            "ynab",
+            "scheduled-transactions",
+            "update",
+            "scheduled-transaction-1",
+            "--frequency",
+            "everyThreeMonths",
+        ])
+        .unwrap();
+
+        let Commands::ScheduledTransactions(command) = cli.command else {
+            panic!("expected scheduled-transactions command");
+        };
+
+        let ScheduledTransactionsCommands::Update(args) = *command else {
+            panic!("expected scheduled-transactions update command");
+        };
+
+        assert!(matches!(
+            args.frequency,
+            Some(ScheduledFrequencyArg::Every3Months)
+        ));
+    }
+
+    #[test]
+    fn scheduled_frequency_sends_spec_value_for_every_3_months() {
+        assert_eq!(
+            ScheduledFrequencyArg::Every3Months.as_api_value(),
+            "every3Months"
+        );
     }
 }
